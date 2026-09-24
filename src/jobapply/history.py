@@ -99,9 +99,14 @@ class HistoryStore:
                 """
                 UPDATE applications
                 SET status = ?, details = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE url = ?
+                WHERE url = ? AND status = ?
                 """,
-                (status.value, serialized_details, normalized),
+                (
+                    status.value,
+                    serialized_details,
+                    normalized,
+                    ApplicationStatus.processing.value,
+                ),
             )
             if cursor.rowcount == 0:
                 connection.rollback()

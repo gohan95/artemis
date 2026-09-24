@@ -83,6 +83,21 @@ def test_finish_persists_status_and_details(history):
     }
 
 
+def test_finish_cannot_overwrite_a_terminal_outcome(history):
+    url = "https://jobs.example/role/123"
+    assert history.claim(url)
+    history.finish(url, ApplicationStatus.submitted, {"attempt": 1})
+
+    with pytest.raises(ValueError, match="not claimed"):
+        history.finish(url, ApplicationStatus.failed, {"attempt": 2})
+
+    assert history.get(url) == {
+        "url": url,
+        "status": "submitted",
+        "details": {"attempt": 1},
+    }
+
+
 def test_finish_does_not_create_an_identity(history):
     with pytest.raises(ValueError, match="not claimed"):
         history.finish(
