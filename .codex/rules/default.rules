@@ -1,0 +1,5 @@
+prefix_rule(
+    pattern = ["git", "add"],
+    decision = "allow",
+    justification = "Stage project changes without an approval prompt",
+)
