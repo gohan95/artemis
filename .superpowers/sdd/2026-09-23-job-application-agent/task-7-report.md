@@ -64,3 +64,29 @@ Confidence is moderate. Exact-host checks and the pure required-control readines
 ### Commit
 
 Commit message: `fix: harden ATS submission review findings`.
+
+## Review fix round 2/5
+
+### Changes
+
+- Submission now invokes `read_questions()` before its readiness check, so custom-widget detection in the extraction path also stops submission before a click. Unknown required native controls are rejected by the readiness check.
+- The preflight includes both native `required` and `aria-required="true"` form controls.
+- Readiness checks require nonempty values for required text/select controls, checked state for required checkboxes, and a selected file for required file controls. Unsupported or invalid required controls remain uncertain.
+- Preserved the exact HTTPS host allowlist, native submit control selector, and off-allowlist main-frame navigation guard from round 1.
+
+### TDD and verification evidence
+
+- RED: New pure readiness tests initially failed against the old helper because empty required values and unchecked checkboxes were accepted. The first focused run reported 3 failed, 7 passed, and 19 skipped.
+- GREEN/focused: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest tests/test_ats_adapters.py -q` reported 10 passed, 19 skipped.
+- Full suite: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest -q` reported 120 passed, 19 skipped.
+- `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run python -m compileall -q src/jobapply/ats` and `git diff --check` passed.
+- Browser cases for ARIA-required controls and custom widgets are included but skipped because the local browser cannot launch in this environment. No live ATS calls were made.
+
+### Self-review and concerns
+
+- Checked that preflight exits before submit-button discovery/click for deferred custom widgets and any unready required native or ARIA-required control. Prior host validation, native submit selection, and redirect interception remain unchanged.
+- Confidence: moderate. Pure readiness and full-suite coverage pass; Playwright DOM behavior remains unverified until run in a browser-enabled environment.
+
+### Commit
+
+Pending.

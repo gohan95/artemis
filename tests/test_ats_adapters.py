@@ -64,8 +64,8 @@ def test_adapter_matches_only_fixture_backed_board_hosts(adapter, accepted, reje
 
 def test_required_control_preflight_rejects_unknown_or_unanswered_values():
     controls = [
-        {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False},
-        {"required": True, "supported": False, "valid": True, "file": False, "fileSelected": False},
+        {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "filled", "checked": False, "kind": "text"},
+        {"required": True, "supported": False, "valid": True, "file": False, "fileSelected": False, "value": "", "checked": False, "kind": "unknown"},
     ]
     assert not BaseATSAdapter._required_controls_are_ready(controls)
     controls[1]["supported"] = True
@@ -74,9 +74,28 @@ def test_required_control_preflight_rejects_unknown_or_unanswered_values():
 
 
 def test_required_file_control_is_ready_only_when_a_file_is_selected():
-    control = {"required": True, "supported": True, "valid": True, "file": True, "fileSelected": False}
+    control = {"required": True, "supported": True, "valid": True, "file": True, "fileSelected": False, "value": "", "checked": False, "kind": "file"}
     assert not BaseATSAdapter._required_controls_are_ready([control])
     control["fileSelected"] = True
+    assert BaseATSAdapter._required_controls_are_ready([control])
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "", "checked": False, "kind": "text"},
+        {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "", "checked": False, "kind": "checkbox"},
+        {"required": True, "supported": False, "valid": False, "file": False, "fileSelected": False, "value": "", "checked": False, "kind": "unknown"},
+    ],
+)
+def test_required_control_readiness_requires_real_values_and_known_state(control):
+    assert not BaseATSAdapter._required_controls_are_ready([control])
+
+
+def test_required_checkbox_readiness_uses_checked_state():
+    control = {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "", "checked": False, "kind": "checkbox"}
+    assert not BaseATSAdapter._required_controls_are_ready([control])
+    control["checked"] = True
     assert BaseATSAdapter._required_controls_are_ready([control])
 
 
@@ -202,6 +221,38 @@ async def test_submit_does_not_click_when_required_control_is_unanswered(browser
     assert result.status == "uncertain"
     assert await page.locator("input").input_value() == ""
     assert await page.locator("form").is_visible()
+    await page.close()
+
+
+async def test_submit_does_not_click_when_aria_required_control_is_unanswered(browser_instance):
+    page = await browser_instance.new_page()
+    await page.route(
+        "https://boards.greenhouse.io/**",
+        lambda route: route.fulfill(
+            body='<form><input name="email" type="email" aria-required="true"><button type="submit">Apply</button></form>',
+            content_type="text/html",
+        ),
+    )
+    await page.goto("https://boards.greenhouse.io/jobs/aria-incomplete")
+    result = await GreenhouseAdapter().submit(page)
+    assert result.status == "uncertain"
+    assert await page.locator("input").input_value() == ""
+    await page.close()
+
+
+async def test_submit_defers_for_custom_question_widget(browser_instance):
+    page = await browser_instance.new_page()
+    await page.route(
+        "https://boards.greenhouse.io/**",
+        lambda route: route.fulfill(
+            body='<form><div role="combobox" aria-required="true" aria-label="Country"></div><button type="submit">Apply</button></form>',
+            content_type="text/html",
+        ),
+    )
+    await page.goto("https://boards.greenhouse.io/jobs/custom-required")
+    result = await GreenhouseAdapter().submit(page)
+    assert result.status == "uncertain"
+    assert "custom" in result.reason.lower()
     await page.close()
 
 

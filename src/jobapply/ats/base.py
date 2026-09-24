@@ -263,18 +263,30 @@ class BaseATSAdapter:
         form = page.locator(self.form_selector)
         if await form.count() != 1:
             return SubmissionResult("uncertain", "application form is missing or ambiguous")
+        try:
+            # Use the extraction path as the source of truth for unsupported widgets.
+            await self.read_questions(page)
+        except AdapterDeferred as error:
+            return SubmissionResult("uncertain", str(error))
         controls = await form.evaluate(
-            """form => Array.from(form.elements).filter(element => element.required).map(element => {
+            """form => Array.from(form.elements).filter(element =>
+              element.required || element.getAttribute('aria-required') === 'true'
+            ).map(element => {
               const tag = element.tagName.toLowerCase();
               const type = (element.type || '').toLowerCase();
               const supported = tag === 'textarea' || tag === 'select' ||
                 (tag === 'input' && ['text', 'email', 'tel', 'url', 'search', 'checkbox', 'file'].includes(type));
+              const kind = type === 'checkbox' ? 'checkbox' :
+                (type === 'file' ? 'file' : (tag === 'select' ? 'select' : 'value'));
               return {
                 required: true,
                 supported,
                 valid: element.validity ? element.validity.valid : false,
                 file: tag === 'input' && type === 'file',
-                fileSelected: tag === 'input' && type === 'file' && element.files.length > 0
+                fileSelected: tag === 'input' && type === 'file' && element.files.length > 0,
+                value: typeof element.value === 'string' ? element.value.trim() : '',
+                checked: element.checked === true,
+                kind
               };
             })"""
         )
@@ -336,6 +348,10 @@ class BaseATSAdapter:
             if not control["supported"] or not control["valid"]:
                 return False
             if control["file"] and not control["fileSelected"]:
+                return False
+            if control["kind"] == "checkbox" and not control["checked"]:
+                return False
+            if not control["file"] and control["kind"] != "checkbox" and not control["value"]:
                 return False
         return True
 
