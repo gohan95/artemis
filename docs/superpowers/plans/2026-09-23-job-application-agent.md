@@ -196,12 +196,15 @@ def test_unknown_fact_id_becomes_defer(jev_client):
 **Files:**
 - Create: `src/jobapply/generation.py`
 - Modify: `src/jobapply/policy.py`
+- Modify: `src/jobapply/jev.py`
 - Test: `tests/test_generation.py`
 - Test: `tests/test_policy.py`
+- Test: `tests/test_jev.py`
 
 **Interfaces:**
 - Produces: `SupportedClaim(text: str, evidence_ids: list[str])`; `DraftAnswer(claims: list[SupportedClaim])`; `TextGenerator.draft(question: FormQuestion, evidence: list[EvidenceFact], job_context: str) -> DraftAnswer`. Construct the final answer deterministically by joining claim text in order, so no unreferenced prose can bypass claim checks.
 - OpenAI adapter uses the official Python SDK and Responses API. The model is configured by `OPENAI_MODEL`; no model name is hard-coded into application logic.
+- Jev adds a separate typed `check_claim_support(...)` method returning `supported`, `unsupported`, or `defer` with confidence. Keep `decide()` restricted to profile-backed candidate IDs and routing controls; support checking must not expand application-answer choices.
 
 - [ ] **Step 1: Write failing tests** for valid evidence references, unknown evidence IDs, blank text, maximum length, and failed generation requests.
 
@@ -214,7 +217,7 @@ def test_draft_with_unknown_evidence_id_is_rejected(draft, evidence):
 - [ ] **Step 2: Run `uv run pytest tests/test_generation.py -q`** and confirm the tests fail.
 - [ ] **Step 3: Implement structured draft generation** that returns claim-level evidence IDs, using only relevant supplied facts and the job description. Validate schema, evidence IDs, required length limits, and factual-answer presence. Construct final text from the validated claims. Send only facts relevant to the question to the OpenAI API; do not send the complete profile or resume, and do not place sensitive profile fields into generation context unless the specific question requires the explicit value.
 - [ ] **Step 4: Add a support-evaluation path.** Ask Jev whether each claim is supported by its cited evidence, as a typed yes/no decision. Require valid cited IDs and confidence of at least `JEV_MIN_CONFIDENCE=0.98`; missing, low-confidence, or negative support means defer. Log evaluation outcomes for comparison with labeled examples; do not treat this model check as formal proof or a standalone authorization to submit.
-- [ ] **Step 5: Run `uv run pytest tests/test_generation.py tests/test_policy.py -q`** using a fake Responses client and fake Jev client; confirm no tests require network access.
+- [ ] **Step 5: Run `uv run pytest tests/test_generation.py tests/test_policy.py tests/test_jev.py -q`** using a fake Responses client and fake Jev client; confirm no tests require network access.
 - [ ] **Step 6: Commit** as `feat: draft evidence-referenced application answers`.
 
 ### Task 7: Build Greenhouse and Lever browser adapters
