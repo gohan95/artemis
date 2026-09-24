@@ -70,12 +70,23 @@ def submission_decision(
                 add_reason("missing_required_answer")
             continue
 
+        if resolved is None:
+            # A caller-provided answer cannot stand in for an absent known
+            # profile value. Generated drafts may be validated in a later task.
+            add_reason("missing_required_answer")
+            continue
+
         if sensitive:
             expected_evidence = resolved[1]
+            expected_value = resolved[0]
+            answer_value = answer.value
+            if question.kind == "select" and expected_value is not None:
+                expected_value = normalize_label(expected_value)
+                answer_value = normalize_label(answer_value)
             if (
-                resolved[0] is None
+                expected_value is None
                 or expected_evidence not in answer.evidence_ids
-                or answer.value != resolved[0]
+                or answer_value != expected_value
             ):
                 add_reason("sensitive_answer_missing")
                 continue

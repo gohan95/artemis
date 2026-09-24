@@ -104,6 +104,39 @@ def test_known_profile_answer_cannot_be_replaced_by_an_unbacked_value():
     assert decision.reason_codes == ["missing_required_answer"]
 
 
+def test_arbitrary_answer_cannot_fill_known_field_without_profile_value():
+    question = FormQuestion("q1", "Email Address", True, "email", [], None)
+    answer = FieldAnswer("q1", "arbitrary@example.test", ["profile.email"], "profile")
+
+    decision = submission_decision([answer], [question], _profile())
+
+    assert decision.action == "defer"
+    assert decision.reason_codes == ["missing_required_answer"]
+
+
+def test_sensitive_select_option_case_normalization_preserves_explicit_evidence():
+    question = FormQuestion(
+        "q1",
+        "Are you authorized to work in the United States?",
+        True,
+        "select",
+        ["Yes"],
+        None,
+    )
+    profile = _profile(sensitive_answers={"work_authorization": "yes"})
+    answer = FieldAnswer(
+        "q1",
+        "Yes",
+        ["profile.sensitive_answers.work_authorization"],
+        "profile",
+    )
+
+    decision = submission_decision([answer], [question], profile)
+
+    assert decision.action == "submit"
+    assert decision.reason_codes == []
+
+
 def test_unhandled_required_resume_upload_defers_without_a_textual_answer():
     question = FormQuestion("resume", "Resume Attachment", True, "unknown", [], None)
 

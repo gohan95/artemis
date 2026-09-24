@@ -69,6 +69,24 @@ def test_exact_select_value_matches_option_after_normalization(profile):
     assert answer.value == "  ADA@EXAMPLE.TEST  "
 
 
+def test_sensitive_select_mapping_preserves_option_case_and_evidence(profile):
+    profile.sensitive_answers["work_authorization"] = "yes"
+    question = FormQuestion(
+        "q1",
+        "Are you authorized to work in the United States?",
+        True,
+        "select",
+        ["Yes"],
+        None,
+    )
+
+    answer = map_known_question(question, profile)
+
+    assert answer is not None
+    assert answer.value == "Yes"
+    assert answer.evidence_ids == ["profile.sensitive_answers.work_authorization"]
+
+
 @pytest.mark.parametrize(
     "label", ["Your email", "Please provide your email address", "Email Address (required)"]
 )
