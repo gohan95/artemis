@@ -198,10 +198,21 @@ async def test_resume_upload_verification_requires_selected_file(adapter, host, 
     await page.close()
 
 
-async def test_fill_rejects_ambiguous_matching_fields(browser_instance):
+@pytest.mark.parametrize(
+    "other_control",
+    [
+        '<input name="  EMAIL  ">',
+        '<input id="  EMAIL  " name="email2">',
+        '<label>  EMAIL   <input name="email2"></label>',
+        '<input name="email2" aria-label="  EMAIL  ">',
+        '<span id="email-label">  EMAIL  </span><input name="email2" aria-labelledby="email-label">',
+    ],
+    ids=["name", "id", "associated-label", "aria-label", "aria-labelledby"],
+)
+async def test_fill_rejects_ambiguous_matching_fields(browser_instance, other_control):
     page = await browser_instance.new_page()
     await page.route("https://boards.greenhouse.io/**", lambda route: route.fulfill(
-        body='<form><label>Email <input name="email"></label><label>Email <input name="email2"></label></form>',
+        body=f'<form><input name="email">{other_control}</form>',
         content_type="text/html",
     ))
     await page.goto("https://boards.greenhouse.io/jobs/ambiguous")

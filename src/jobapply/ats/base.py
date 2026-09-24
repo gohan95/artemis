@@ -189,16 +189,21 @@ class BaseATSAdapter:
             "input:not([type=hidden]), textarea, select"
         )
         matches = []
+        question_id = " ".join(answer.question_id.split()).casefold()
         for index in range(await controls.count()):
             control = controls.nth(index)
             identity = await control.evaluate(
-                "element => ({name: element.name, id: element.id, label: "
-                "Array.from(element.labels || []).map(label => label.innerText).join(' ').trim()})"
+                "element => ({name: element.name, id: element.id, labels: ["
+                "...Array.from(element.labels || []).map(label => label.textContent || ''), "
+                "element.getAttribute('aria-label') || '', "
+                "...(element.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)"
+                ".map(id => document.getElementById(id)?.textContent || '')]})"
             )
-            if answer.question_id in {
-                identity["name"],
-                identity["id"],
-                identity["label"],
+            identifiers = [identity["name"], identity["id"], *identity["labels"]]
+            if question_id in {
+                " ".join(identifier.split()).casefold()
+                for identifier in identifiers
+                if identifier
             }:
                 matches.append(control)
         if len(matches) > 1:
