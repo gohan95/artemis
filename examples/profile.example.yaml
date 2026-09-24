@@ -1,0 +1,42 @@
+# Fictional example only. Replace with facts you can support from your records.
+full_name: Riley Example
+email: riley@example.test
+phone: "+1-555-010-2040"
+location: Portland, OR
+website: https://riley.example.test
+linkedin: https://www.linkedin.com/in/riley-example
+
+# Relative paths are resolved from the directory containing this YAML file.
+resume_path: resume.pdf
+
+# Keep record IDs stable if you reorder or edit these entries.
+work_history:
+  - id: northstar-analytics
+    employer: Northstar Analytics
+    title: Data Analyst
+    start_date: 2022-04
+    end_date: 2025-01
+    achievements:
+      - Built reporting tools used by four internal teams
+      - Improved a weekly data quality review process
+
+education:
+  - id: cascades-college
+    institution: Cascades College
+    degree: BS in Statistics
+    graduation_year: 2021
+
+skills:
+  - SQL
+  - Python
+  - Data visualization
+
+preferences:
+  locations:
+    - Remote
+    - Portland, OR
+  employment_types:
+    - Full-time
+
+# Add only explicitly known answers. Omitted sensitive answers stay unknown.
+sensitive_answers: {}
