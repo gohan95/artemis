@@ -1,7 +1,8 @@
 import pytest
 
 from jobapply.forms import FormQuestion
-from jobapply.generation import DraftAnswer, SupportedClaim, TextGenerator
+from jobapply.generation import DraftAnswer, SupportedClaim, TextGenerator, render_answer
+from jobapply.jev import ClaimSupport
 from jobapply.policy import validate_draft
 from jobapply.profile import EvidenceFact
 from jobapply.settings import Settings
@@ -23,9 +24,7 @@ def question():
     return FormQuestion("q1", "Describe your team leadership experience", True, "text", [], 200)
 
 
-def test_valid_claim_references_render_deterministically(evidence):
-    from jobapply.generation import render_answer
-
+def test_validated_claims_render_deterministically(evidence):
     draft = DraftAnswer(
         claims=[
             SupportedClaim(text="I led a team of eight engineers.", evidence_ids=["work.acme.team"]),
@@ -33,26 +32,55 @@ def test_valid_claim_references_render_deterministically(evidence):
         ]
     )
 
-    decision = validate_draft(draft, evidence, max_length=200)
+    class FakeJev:
+        settings = Settings(jev_min_confidence=0.98)
 
-    assert decision.action == "submit"
-    assert render_answer(draft) == (
+        def check_claim_support(self, question, claim, cited):
+            return ClaimSupport("supported", 0.99, [fact["id"] for fact in cited])
+
+    validation = validate_draft(
+        draft, evidence, question=FormQuestion("q", "Describe leadership", True, "text", [], 200),
+        jev_client=FakeJev(), max_length=200,
+    )
+
+    assert validation.validated_answer is not None
+    assert render_answer(validation.validated_answer) == (
         "I led a team of eight engineers. I worked as an engineering manager."
     )
 
 
-def test_draft_with_unknown_evidence_id_is_rejected(evidence):
+def test_raw_draft_cannot_be_rendered(evidence):
+    draft = DraftAnswer(claims=[SupportedClaim(text="Unsupported claim", evidence_ids=["missing-id"])])
+
+    with pytest.raises(TypeError):
+        render_answer(draft)
+
+
+def test_draft_with_unknown_evidence_id_is_rejected_before_jev(evidence):
     draft = DraftAnswer(
         claims=[SupportedClaim(text="I led a team", evidence_ids=["missing-id"])]
     )
 
-    assert validate_draft(draft, evidence, max_length=200).action == "defer"
+    class UnreachableJev:
+        def check_claim_support(self, *args):
+            pytest.fail("unknown evidence reached Jev")
+
+    result = validate_draft(
+        draft, evidence, question=FormQuestion("q", "Leadership", True, "text", [], 200),
+        jev_client=UnreachableJev(), max_length=200,
+    )
+    assert result.validated_answer is None
+    assert "invalid_evidence_reference" in result.reason_codes
 
 
 def test_blank_claim_text_is_rejected(evidence):
     draft = DraftAnswer(claims=[SupportedClaim(text="  ", evidence_ids=["work.acme.team"])])
 
-    assert validate_draft(draft, evidence, max_length=200).action == "defer"
+    result = validate_draft(
+        draft, evidence, question=FormQuestion("q", "Leadership", True, "text", [], 200),
+        jev_client=None, max_length=200,
+    )
+    assert result.validated_answer is None
 
 
 def test_answer_longer_than_question_limit_is_rejected(evidence):
@@ -60,11 +88,85 @@ def test_answer_longer_than_question_limit_is_rejected(evidence):
         claims=[SupportedClaim(text="I led a team of eight engineers.", evidence_ids=["work.acme.team"])]
     )
 
-    assert validate_draft(draft, evidence, max_length=10).action == "defer"
+    result = validate_draft(
+        draft, evidence, question=FormQuestion("q", "Leadership", True, "text", [], 10),
+        jev_client=None, max_length=10,
+    )
+    assert result.validated_answer is None
+
+
+def test_explicit_max_length_cannot_weaken_question_limit(evidence):
+    draft = DraftAnswer(
+        claims=[SupportedClaim(text="I led a team of eight engineers.", evidence_ids=["work.acme.team"])]
+    )
+    result = validate_draft(
+        draft,
+        evidence,
+        question=FormQuestion("q", "Leadership", True, "text", [], 10),
+        jev_client=None,
+        max_length=200,
+    )
+
+    assert result.validated_answer is None
+    assert "answer_too_long" in result.reason_codes
 
 
 def test_empty_draft_defers_for_absent_factual_answer(evidence):
-    assert validate_draft(DraftAnswer(claims=[]), evidence, max_length=200).action == "defer"
+    result = validate_draft(
+        DraftAnswer(claims=[]), evidence,
+        question=FormQuestion("q", "Leadership", True, "text", [], 200),
+        jev_client=None, max_length=200,
+    )
+    assert result.validated_answer is None
+
+
+def test_valid_structure_defers_when_support_is_missing_or_raises(evidence, question):
+    draft = DraftAnswer(claims=[SupportedClaim(text="I led eight engineers.", evidence_ids=["work.acme.team"])])
+
+    class RaisingJev:
+        settings = Settings(jev_min_confidence=0.98)
+
+        def check_claim_support(self, *args):
+            raise RuntimeError("Jev unavailable")
+
+    for jev in (None, RaisingJev()):
+        result = validate_draft(draft, evidence, question=question, jev_client=jev, max_length=200)
+        assert result.validated_answer is None
+        assert "claim_support_unconfirmed" in result.reason_codes
+
+
+def test_valid_structure_defers_when_jev_returns_unsupported_or_low_confidence(evidence, question):
+    draft = DraftAnswer(claims=[SupportedClaim(text="I led eight engineers.", evidence_ids=["work.acme.team"])])
+
+    class FakeJev:
+        settings = Settings(jev_min_confidence=0.98)
+
+        def __init__(self, status, confidence):
+            self.status = status
+            self.confidence = confidence
+
+        def check_claim_support(self, _question, _claim, cited):
+            return ClaimSupport(self.status, self.confidence, [fact["id"] for fact in cited])
+
+    for jev in (FakeJev("unsupported", 0.99), FakeJev("supported", 0.97)):
+        result = validate_draft(draft, evidence, question=question, jev_client=jev, max_length=200)
+        assert result.validated_answer is None
+
+
+def test_valid_structure_defers_when_jev_returns_no_support_result(evidence, question):
+    draft = DraftAnswer(claims=[SupportedClaim(text="I led eight engineers.", evidence_ids=["work.acme.team"])])
+
+    class EmptyResultJev:
+        settings = Settings(jev_min_confidence=0.98)
+
+        def check_claim_support(self, *_args):
+            return None
+
+    result = validate_draft(
+        draft, evidence, question=question, jev_client=EmptyResultJev(), max_length=200
+    )
+    assert result.validated_answer is None
+    assert "claim_support_unconfirmed" in result.reason_codes
 
 
 def test_generation_sends_only_relevant_non_sensitive_fact_values(question, evidence):

@@ -5,7 +5,6 @@ import pytest
 from jobapply.forms import FieldAnswer, FormQuestion
 from jobapply.policy import (
     claim_support_is_confirmed,
-    evaluate_draft_support,
     submission_decision,
     validate_draft,
 )
@@ -13,6 +12,7 @@ from jobapply.generation import DraftAnswer, SupportedClaim
 from jobapply.jev import ClaimSupport
 from jobapply.profile import EvidenceFact
 from jobapply.profile import Profile
+from jobapply.settings import Settings
 
 
 def _profile(**kwargs):
@@ -162,10 +162,33 @@ def test_generated_draft_validation_only_checks_claim_evidence_and_length():
     )
     evidence = [EvidenceFact(id="work.acme.team", value="Led eight engineers", source="profile")]
 
-    decision = validate_draft(draft, evidence, max_length=80)
+    class FakeJev:
+        settings = Settings(jev_min_confidence=0.98)
 
-    assert decision.action == "submit"
+        def check_claim_support(self, _question, claim, cited):
+            return ClaimSupport("supported", 0.99, [fact["id"] for fact in cited])
+
+    decision = validate_draft(
+        draft,
+        evidence,
+        question=FormQuestion("q", "Describe leadership", True, "text", [], 80),
+        jev_client=FakeJev(),
+        max_length=80,
+    )
+
+    assert decision.validated_answer is not None
     assert decision.reason_codes == []
+
+
+def test_structural_validation_alone_cannot_pass_without_jev_support():
+    draft = DraftAnswer(
+        claims=[SupportedClaim(text="I led eight engineers.", evidence_ids=["work.acme.team"])]
+    )
+    evidence = [EvidenceFact(id="work.acme.team", value="Led eight engineers", source="profile")]
+
+    validation = validate_draft(draft, evidence, max_length=80)
+
+    assert validation.action == "defer"
 
 
 @pytest.mark.parametrize(
@@ -183,15 +206,7 @@ def test_claim_support_must_be_supported_cited_and_at_least_point_98(support):
     assert confirmed is False
 
 
-def test_supported_claim_with_high_confidence_and_matching_citations_passes():
-    confirmed = claim_support_is_confirmed(
-        ClaimSupport(status="supported", confidence=0.98, evidence_ids=["work.acme.team"]), ["work.acme.team"]
-    )
-
-    assert confirmed is True
-
-
-def test_draft_support_checks_every_claim_using_only_its_references():
+def test_draft_validation_checks_every_claim_using_only_its_references():
     class FakeJev:
         def __init__(self):
             self.calls = []
@@ -216,7 +231,14 @@ def test_draft_support_checks_every_claim_using_only_its_references():
     )
     jev = FakeJev()
 
-    assert evaluate_draft_support(draft, evidence, FormQuestion("q", "Describe leadership", True, "text", [], None), jev)
+    result = validate_draft(
+        draft,
+        evidence,
+        question=FormQuestion("q", "Describe leadership", True, "text", [], None),
+        jev_client=jev,
+        max_length=300,
+    )
+    assert result.validated_answer is not None
     assert jev.calls == [
         ("Describe leadership", "I led eight engineers.", [{"id": "work.acme.team", "value": "Led eight engineers"}]),
         ("Describe leadership", "I was an engineering manager.", [{"id": "work.acme.role", "value": "Engineering manager"}]),

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from jobapply.forms import FieldAnswer, FormQuestion
-from jobapply.generation import DraftAnswer
+from jobapply.generation import DraftAnswer, ValidatedAnswer
 from jobapply.jev import ClaimSupport
 from jobapply.mapping import (
     _is_known_question,
@@ -21,12 +21,18 @@ class Decision:
 
     action: Literal["submit", "defer"]
     reason_codes: list[str]
+    validated_answer: ValidatedAnswer | None = None
 
 
 def validate_draft(
-    draft: DraftAnswer, evidence: Sequence, *, max_length: int | None
+    draft: DraftAnswer,
+    evidence: Sequence,
+    *,
+    question: FormQuestion | None = None,
+    jev_client=None,
+    max_length: int | None = None,
 ) -> Decision:
-    """Check generated claim structure, citations, factual presence, and length."""
+    """Validate structure, citations, length, and Jev support as one boundary."""
 
     reasons: list[str] = []
     known_ids = {fact.id for fact in evidence}
@@ -40,9 +46,46 @@ def validate_draft(
         ):
             reasons.append("invalid_evidence_reference")
     answer = " ".join(claim.text.strip() for claim in draft.claims)
-    if max_length is not None and len(answer) > max_length:
+    limits = [limit for limit in (
+        question.max_length if question is not None else None,
+        max_length,
+    ) if limit is not None]
+    effective_max_length = min(limits) if limits else None
+    if effective_max_length is not None and len(answer) > effective_max_length:
         reasons.append("answer_too_long")
-    return Decision(action="defer" if reasons else "submit", reason_codes=reasons)
+    if reasons:
+        return Decision(action="defer", reason_codes=reasons)
+
+    if question is None or jev_client is None:
+        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"])
+
+    jev_settings = getattr(jev_client, "settings", None)
+    min_confidence = getattr(jev_settings, "jev_min_confidence", 0.98)
+    evidence_by_id = {fact.id: fact for fact in evidence}
+    support_failed = False
+    for claim in draft.claims:
+        cited = [evidence_by_id[identifier] for identifier in claim.evidence_ids]
+        try:
+            support = jev_client.check_claim_support(
+                question.label,
+                claim.text,
+                [{"id": fact.id, "value": fact.value} for fact in cited],
+            )
+        except Exception:
+            support_failed = True
+            continue
+        if not isinstance(support, ClaimSupport) or not claim_support_is_confirmed(
+            support, claim.evidence_ids, min_confidence=min_confidence
+        ):
+            support_failed = True
+    if support_failed:
+        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"])
+
+    return Decision(
+        action="submit",
+        reason_codes=[],
+        validated_answer=ValidatedAnswer(answer),
+    )
 
 
 def claim_support_is_confirmed(
@@ -56,35 +99,6 @@ def claim_support_is_confirmed(
         and bool(evidence_ids)
         and support.evidence_ids == list(evidence_ids)
     )
-
-
-def evaluate_draft_support(
-    draft: DraftAnswer,
-    evidence: Sequence,
-    question: FormQuestion,
-    jev_client,
-    *,
-    min_confidence: float = 0.98,
-) -> bool:
-    """Evaluate each claim against only its cited facts; this is not submit auth."""
-
-    evidence_by_id = {fact.id: fact for fact in evidence}
-    for claim in draft.claims:
-        if not claim.evidence_ids or any(
-            identifier not in evidence_by_id for identifier in claim.evidence_ids
-        ):
-            return False
-        cited = [evidence_by_id[identifier] for identifier in claim.evidence_ids]
-        support = jev_client.check_claim_support(
-            question.label,
-            claim.text,
-            [{"id": fact.id, "value": fact.value} for fact in cited],
-        )
-        if not claim_support_is_confirmed(
-            support, claim.evidence_ids, min_confidence=min_confidence
-        ):
-            return False
-    return bool(draft.claims)
 
 
 def submission_decision(

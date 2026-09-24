@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from openai import OpenAI
@@ -37,10 +38,19 @@ class DraftAnswer(BaseModel):
     claims: list[SupportedClaim]
 
 
-def render_answer(draft: DraftAnswer) -> str:
-    """Join claims in order so prose cannot bypass claim-level checks."""
+@dataclass(frozen=True)
+class ValidatedAnswer:
+    """Answer text that has passed structural and Jev support validation."""
 
-    return " ".join(claim.text.strip() for claim in draft.claims)
+    text: str
+
+
+def render_answer(answer: ValidatedAnswer) -> str:
+    """Render only an answer returned by the support-aware validation boundary."""
+
+    if not isinstance(answer, ValidatedAnswer):
+        raise TypeError("render_answer requires a support-validated answer")
+    return answer.text
 
 
 def _terms(value: str) -> set[str]:
