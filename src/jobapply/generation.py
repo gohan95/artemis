@@ -3,7 +3,6 @@
 import json
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any
 
 from openai import OpenAI
@@ -36,21 +35,6 @@ class DraftAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claims: list[SupportedClaim]
-
-
-@dataclass(frozen=True)
-class ValidatedAnswer:
-    """Answer text that has passed structural and Jev support validation."""
-
-    text: str
-
-
-def render_answer(answer: ValidatedAnswer) -> str:
-    """Render only an answer returned by the support-aware validation boundary."""
-
-    if not isinstance(answer, ValidatedAnswer):
-        raise TypeError("render_answer requires a support-validated answer")
-    return answer.text
 
 
 def _terms(value: str) -> set[str]:

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from jobapply.forms import FieldAnswer, FormQuestion
-from jobapply.generation import DraftAnswer, ValidatedAnswer
+from jobapply.generation import DraftAnswer
 from jobapply.jev import ClaimSupport
 from jobapply.mapping import (
     _is_known_question,
@@ -21,49 +21,51 @@ class Decision:
 
     action: Literal["submit", "defer"]
     reason_codes: list[str]
-    validated_answer: ValidatedAnswer | None = None
 
 
-def validate_draft(
+def validate_and_render_answer(
     draft: DraftAnswer,
     evidence: Sequence,
     *,
-    question: FormQuestion | None = None,
+    question: FormQuestion,
     jev_client=None,
-    max_length: int | None = None,
-) -> Decision:
-    """Validate structure, citations, length, and Jev support as one boundary."""
+) -> tuple[Decision, str | None]:
+    """Validate every cited claim and return renderable text only on success."""
 
     reasons: list[str] = []
     known_ids = {fact.id for fact in evidence}
-    if not draft.claims:
+    claims = getattr(draft, "claims", None)
+    if not isinstance(claims, list) or not claims:
         reasons.append("missing_factual_answer")
-    for claim in draft.claims:
-        if not claim.text.strip():
+        claims = []
+    for claim in claims:
+        text = getattr(claim, "text", None)
+        evidence_ids = getattr(claim, "evidence_ids", None)
+        if not isinstance(text, str) or not text.strip():
             reasons.append("blank_claim")
-        if not claim.evidence_ids or any(
-            evidence_id not in known_ids for evidence_id in claim.evidence_ids
+        if not isinstance(evidence_ids, list) or not evidence_ids or any(
+            not isinstance(evidence_id, str) or evidence_id not in known_ids
+            for evidence_id in evidence_ids
         ):
             reasons.append("invalid_evidence_reference")
-    answer = " ".join(claim.text.strip() for claim in draft.claims)
-    limits = [limit for limit in (
-        question.max_length if question is not None else None,
-        max_length,
-    ) if limit is not None]
-    effective_max_length = min(limits) if limits else None
-    if effective_max_length is not None and len(answer) > effective_max_length:
+    answer = " ".join(
+        claim.text.strip()
+        for claim in claims
+        if isinstance(getattr(claim, "text", None), str)
+    )
+    if question.max_length is not None and len(answer) > question.max_length:
         reasons.append("answer_too_long")
     if reasons:
-        return Decision(action="defer", reason_codes=reasons)
+        return Decision(action="defer", reason_codes=reasons), None
 
-    if question is None or jev_client is None:
-        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"])
+    if jev_client is None:
+        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"]), None
 
     jev_settings = getattr(jev_client, "settings", None)
     min_confidence = getattr(jev_settings, "jev_min_confidence", 0.98)
     evidence_by_id = {fact.id: fact for fact in evidence}
     support_failed = False
-    for claim in draft.claims:
+    for claim in claims:
         cited = [evidence_by_id[identifier] for identifier in claim.evidence_ids]
         try:
             support = jev_client.check_claim_support(
@@ -79,13 +81,9 @@ def validate_draft(
         ):
             support_failed = True
     if support_failed:
-        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"])
+        return Decision(action="defer", reason_codes=["claim_support_unconfirmed"]), None
 
-    return Decision(
-        action="submit",
-        reason_codes=[],
-        validated_answer=ValidatedAnswer(answer),
-    )
+    return Decision(action="submit", reason_codes=[]), answer
 
 
 def claim_support_is_confirmed(

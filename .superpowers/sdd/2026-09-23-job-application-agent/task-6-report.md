@@ -62,3 +62,13 @@ The first `uv` invocation could not initialize its default home cache due filesy
 - Full suite: `UV_CACHE_DIR=/private/tmp/uv-cache-trailhead uv run pytest -q` — 110 passed. `git diff --check` — clean.
 - No live network or model calls were made. Jev behavior is covered with offline fakes; its live response contract remains unverified.
 - Commit: `fix: require support validation before rendering drafts`.
+
+## Review fix round 2/5
+
+- Removed the publicly constructible `ValidatedAnswer` and `render_answer()` path. `Decision` no longer carries any answer token that callers could forge and pass to a renderer.
+- Replaced `validate_draft()` with one `validate_and_render_answer(...)` operation. It checks the claim list and text, validates every citation ID, enforces the question's maximum length, checks each claim against only its cited facts via Jev, and requires the configured minimum confidence. It returns `(Decision(action="submit"), rendered_text)` only after all checks pass; every defer result is paired with `None` text.
+- Existing submission policy remains separate and unchanged. Tests use fake Jev/OpenAI clients only; no live network behavior was introduced.
+- RED: `UV_CACHE_DIR=/private/tmp/uv-cache-trailhead uv run pytest tests/test_generation.py tests/test_policy.py -q` — 13 failed, 18 passed. The failures were assertions that the new validation-and-render boundary was missing.
+- GREEN focused: `UV_CACHE_DIR=/private/tmp/uv-cache-trailhead uv run pytest tests/test_generation.py tests/test_policy.py tests/test_jev.py -q` — 56 passed.
+- GREEN full suite: `UV_CACHE_DIR=/private/tmp/uv-cache-trailhead uv run pytest -q` — 110 passed. `git diff --check` — clean.
+- No live network or model calls were made. Jev support behavior remains verified with offline fakes only.
