@@ -82,14 +82,32 @@ def _relevant_facts(
             continue
         value = fact.value
         if fact.id.startswith("resume.page."):
-            # Resume page evidence may contain the whole resume. Send only
-            # sentence-sized excerpts that match the question or job context.
+            # Resume page evidence may contain the whole resume. Send at most
+            # one clipped excerpt from a relevant sentence, never a full page.
             sentences = re.split(r"(?<=[.!?])\s+", value.strip())
-            value = " ".join(
-                sentence
-                for sentence in sentences
-                if _terms(sentence) & (question_terms | _terms(job_context))
-            )
+            excerpt = ""
+            for sentence in sentences:
+                relevant_terms = _terms(sentence) & (question_terms | _terms(job_context))
+                if not relevant_terms:
+                    continue
+                matches = [
+                    match
+                    for match in re.finditer(r"[a-zA-Z0-9]+", sentence)
+                    if match.group().lower() in relevant_terms
+                ]
+                if not matches:
+                    continue
+                limit = min(240, max(1, int(len(sentence) * 0.7)))
+                start = max(0, matches[0].start() - limit // 3)
+                end = min(len(sentence), start + limit)
+                start = max(0, end - limit)
+                excerpt = sentence[start:end].strip()
+                if start:
+                    excerpt = "…" + excerpt
+                if end < len(sentence):
+                    excerpt += "…"
+                break
+            value = excerpt
             if not value:
                 continue
         result.append({"id": fact.id, "value": value})

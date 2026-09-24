@@ -105,3 +105,32 @@ def test_failed_generation_request_defers(question, evidence):
     generator = TextGenerator(Settings(openai_api_key="test", openai_model="test-model"), client=FakeClient())
 
     assert generator.draft(question, evidence, "Relevant job description").claims == []
+
+
+def test_resume_evidence_is_sent_as_an_excerpt_not_as_a_complete_page(question):
+    import json
+
+    resume_text = "Led a team of eight engineers and delivered reliable hiring systems."
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            self.request = kwargs
+            return type("Response", (), {"output_parsed": DraftAnswer(claims=[
+                SupportedClaim(text="I led a team of eight engineers.", evidence_ids=["resume.page.1"])
+            ])})()
+
+    class FakeClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    client = FakeClient()
+    generator = TextGenerator(Settings(openai_api_key="test", openai_model="test-model"), client=client)
+
+    generator.draft(
+        question,
+        [EvidenceFact(id="resume.page.1", value=resume_text, source="resume")],
+        "Hiring team leadership experience",
+    )
+
+    sent = json.loads(client.responses.request["input"][1]["content"])["evidence"][0]["value"]
+    assert sent != resume_text
