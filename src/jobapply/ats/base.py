@@ -33,6 +33,8 @@ class ATSAdapter(Protocol):
 
     async def fill(self, page, answers: Sequence[FieldAnswer]) -> None: ...
 
+    async def verify_resume_upload(self, page, question_id: str) -> bool: ...
+
     async def submit(self, page) -> SubmissionResult: ...
 
     async def confirm_submission(self, page) -> bool: ...
@@ -257,6 +259,21 @@ class BaseATSAdapter:
                 await control.fill(answer.value)
             else:
                 raise AdapterDeferred(f"unsupported control for {answer.question_id!r}")
+
+    async def verify_resume_upload(self, page, question_id: str) -> bool:
+        """Confirm that the identified file input has a selected local file."""
+        self._require_supported_page(page)
+        try:
+            control = await self._answer_locator(
+                page, FieldAnswer(question_id, "", [], "profile")
+            )
+            return await control.evaluate(
+                "element => element.tagName.toLowerCase() === 'input' "
+                "&& (element.type || '').toLowerCase() === 'file' "
+                "&& element.files.length > 0"
+            )
+        except Exception:
+            return False
 
     async def submit(self, page) -> SubmissionResult:
         """Attempt submission only when explicitly called; report observed outcome."""

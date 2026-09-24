@@ -177,6 +177,27 @@ async def test_fill_supports_text_select_checkbox_and_local_file_without_submitt
     await page.close()
 
 
+@pytest.mark.parametrize(
+    "adapter, host",
+    [(GreenhouseAdapter(), "boards.greenhouse.io"), (LeverAdapter(), "jobs.lever.co")],
+)
+async def test_resume_upload_verification_requires_selected_file(adapter, host, browser_instance, tmp_path):
+    page = await browser_instance.new_page()
+    fixture = "lever.html" if host.endswith("lever.co") else "greenhouse.html"
+    await page.route(f"https://{host}/**", lambda route: route.fulfill(path=FIXTURES / fixture))
+    await page.goto(f"https://{host}/jobs/123")
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF-local-test")
+
+    assert await adapter.verify_resume_upload(page, "resume") is False
+    await adapter.fill(page, [FieldAnswer("resume", str(resume), [], "profile")])
+    assert await adapter.verify_resume_upload(page, "resume") is True
+    assert await adapter.verify_resume_upload(page, "not-resume") is False
+    await page.locator("[type=file]").set_input_files([])
+    assert await adapter.verify_resume_upload(page, "resume") is False
+    await page.close()
+
+
 async def test_fill_rejects_ambiguous_matching_fields(browser_instance):
     page = await browser_instance.new_page()
     await page.route("https://boards.greenhouse.io/**", lambda route: route.fulfill(
