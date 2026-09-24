@@ -43,7 +43,20 @@ def evaluate_fixtures(records: list[dict[str, Any]], decisions: dict[str, Decisi
     actual = {row["id"]: decisions.get(row["id"], DecisionAnswer("defer")) for row in records}
     errors = [row for row in records if actual[row["id"]].value != row["expected_choice"]]
     correct = len(records) - len(errors)
-    false_sensitive = [row["id"] for row in records if row["category"] == "sensitive" and actual[row["id"]].value not in {"defer", "sensitive_missing"}]
+    false_sensitive = []
+    for row in records:
+        if row["category"] != "sensitive":
+            continue
+        choice = actual[row["id"]].value
+        if choice in {"defer", "sensitive_missing"}:
+            continue
+        explicit_evidence = set(row.get("expected_evidence_field_ids", []))
+        fact_ids = {
+            fact.get("id") for fact in row.get("state", {}).get("facts", [])
+            if isinstance(fact, dict)
+        }
+        if choice not in explicit_evidence.intersection(fact_ids):
+            false_sensitive.append(row["id"])
     disagreements = [
         {"id": row["id"], "model": actual[row["id"]].value, "rule": exact_rule(row)}
         for row in records if actual[row["id"]].value != exact_rule(row)

@@ -53,6 +53,32 @@ def test_sensitive_false_answers_and_high_confidence_errors_disable_routing():
     assert report["sensitive_policy_gate_passed"] is False
 
 
+def test_sensitive_answer_is_supported_only_by_explicit_fixture_evidence():
+    records = load_fixtures(FIXTURES)
+    explicit = next(
+        row for row in records
+        if row["category"] == "sensitive" and row["expected_evidence_field_ids"]
+    )
+    decisions = {
+        row["id"]: DecisionAnswer(row["expected_choice"], 0.99, {})
+        for row in records
+    }
+    decisions[explicit["id"]] = DecisionAnswer(
+        explicit["expected_choice"], 0.99, {}
+    )
+
+    report = evaluate_fixtures(records, decisions)
+
+    assert report["sensitive_false_answer_count"] == 0
+    assert report["sensitive_policy_gate_passed"] is True
+
+    decisions[explicit["id"]] = DecisionAnswer("profile.email", 0.99, {})
+    report = evaluate_fixtures(records, decisions)
+
+    assert report["sensitive_false_answer_count"] == 1
+    assert report["sensitive_policy_gate_passed"] is False
+
+
 def test_default_cli_refuses_before_network_and_live_requires_explicit_flag(monkeypatch, capsys):
     monkeypatch.setattr(jev_eval, "JevClient", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("client constructed")))
     assert jev_eval.main([]) == 2

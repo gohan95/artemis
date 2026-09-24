@@ -1,6 +1,7 @@
 """Fail-closed adapter for Jev's typed structured-choice endpoint."""
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import httpx
@@ -26,14 +27,16 @@ def _defer() -> DecisionAnswer:
 
 
 def _valid_probability_map(value: Any, choices: set[str]) -> bool:
-    return isinstance(value, dict) and all(
-        isinstance(key, str)
-        and key in choices
-        and isinstance(probability, (int, float))
+    if not isinstance(value, dict) or set(value) != choices:
+        return False
+    if not all(
+        isinstance(probability, (int, float))
         and not isinstance(probability, bool)
         and 0 <= probability <= 1
-        for key, probability in value.items()
-    )
+        for probability in value.values()
+    ):
+        return False
+    return math.isclose(sum(value.values()), 1.0, rel_tol=0.0, abs_tol=0.01)
 
 
 class JevClient:
@@ -56,9 +59,11 @@ class JevClient:
             return results
 
         facts = state.get("facts", []) if isinstance(state, dict) else []
+        if not isinstance(facts, list):
+            return results
         fact_ids = {
             fact["id"] for fact in facts
-            if isinstance(facts, list) and isinstance(fact, dict) and isinstance(fact.get("id"), str)
+            if isinstance(fact, dict) and isinstance(fact.get("id"), str)
         }
         states: dict[str, str] = {}
         api_questions: dict[str, dict] = {}

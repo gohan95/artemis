@@ -29,6 +29,42 @@ def test_valid_typed_choice_preserves_confidence_and_probabilities():
     assert result["field"].probabilities == {"profile.email": 0.99, "defer": 0.01}
 
 
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        {},
+        {"profile.email": 1.0},
+        {"profile.email": 0.8, "defer": 0.1},
+        {"profile.email": 0.8, "defer": 0.2, "other": 0.0},
+    ],
+)
+def test_incomplete_or_invalid_probability_distribution_defers(probabilities):
+    result = make_client({
+        "field": {
+            "type": "choice",
+            "choice": "profile.email",
+            "confidence": 0.99,
+            "probabilities": probabilities,
+        }
+    }).decide(
+        {"facts": [{"id": "profile.email"}]},
+        {"field": {"text": "Which contact field?", "type": "choice", "options": ["profile.email", "defer"]}},
+    )
+
+    assert result["field"].value == "defer"
+
+
+def test_malformed_facts_defer_without_network_request():
+    client = make_client(handler=lambda request: pytest.fail("malformed state reached Jev"))
+
+    result = client.decide(
+        {"facts": None},
+        {"q": {"text": "Which contact field?", "type": "choice", "options": ["profile.email", "defer"]}},
+    )
+
+    assert result["q"].value == "defer"
+
+
 def test_request_contains_question_and_candidate_ids_but_no_fact_values():
     captured = {}
 
