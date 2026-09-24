@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import sqlite3
 
 import pytest
 
@@ -130,3 +131,58 @@ def test_concurrent_claims_for_same_url_only_succeed_once(tmp_path):
 
 def test_get_returns_none_for_unknown_url(history):
     assert history.get("https://jobs.example/unknown") is None
+
+
+def test_list_filters_records_by_status(history):
+    for url, status in (
+        ("https://jobs.example/one", ApplicationStatus.submitted),
+        ("https://jobs.example/two", ApplicationStatus.deferred),
+        ("https://jobs.example/three", ApplicationStatus.deferred),
+    ):
+        assert history.claim(url)
+        history.finish(url, status, {"reason": status.value})
+
+    records = history.list(status=ApplicationStatus.deferred)
+
+    assert [record["url"] for record in records] == [
+        "https://jobs.example/three",
+        "https://jobs.example/two",
+    ]
+    assert all(record["status"] == "deferred" for record in records)
+
+
+def test_list_orders_newest_first_and_breaks_timestamp_ties_by_url(history):
+    urls = [
+        "https://jobs.example/older",
+        "https://jobs.example/tie-b",
+        "https://jobs.example/newest",
+        "https://jobs.example/tie-a",
+    ]
+    for url in urls:
+        assert history.claim(url)
+        history.finish(url, ApplicationStatus.submitted, {})
+    with sqlite3.connect(history.path) as connection:
+        connection.executemany(
+            "UPDATE applications SET updated_at = ? WHERE url = ?",
+            [
+                ("2026-09-20 10:00:00", urls[0]),
+                ("2026-09-22 10:00:00", urls[1]),
+                ("2026-09-23 10:00:00", urls[2]),
+                ("2026-09-22 10:00:00", urls[3]),
+            ],
+        )
+
+    records = history.list()
+
+    assert [record["url"] for record in records] == [
+        "https://jobs.example/newest",
+        "https://jobs.example/tie-a",
+        "https://jobs.example/tie-b",
+        "https://jobs.example/older",
+    ]
+    assert [record["updated_at"] for record in records] == [
+        "2026-09-23 10:00:00",
+        "2026-09-22 10:00:00",
+        "2026-09-22 10:00:00",
+        "2026-09-20 10:00:00",
+    ]

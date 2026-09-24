@@ -9,6 +9,8 @@ data/resume*
 profile.yaml
 profile.yml
 resume.pdf
+resume.docx
+resume.txt
 resumes/
 
 # Local application history and browser authentication state
@@ -19,6 +21,7 @@ playwright/.auth/
 browser-state/
 .playwright/
 playwright-state.json
+storage_state.json
 
 # Python and tool caches
 __pycache__/

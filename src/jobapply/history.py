@@ -129,3 +129,28 @@ class HistoryStore:
             "status": row["status"],
             "details": json.loads(row["details"]),
         }
+
+    def list(self, status: ApplicationStatus | None = None) -> list[dict]:
+        """Return application records in update order, optionally filtered by status."""
+
+        with closing(self._connect()) as connection:
+            if status is None:
+                rows = connection.execute(
+                    "SELECT url, status, details, updated_at FROM applications "
+                    "ORDER BY updated_at DESC, url"
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT url, status, details, updated_at FROM applications "
+                    "WHERE status = ? ORDER BY updated_at DESC, url",
+                    (status.value,),
+                ).fetchall()
+        return [
+            {
+                "url": row["url"],
+                "status": row["status"],
+                "details": json.loads(row["details"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]

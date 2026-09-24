@@ -18,6 +18,9 @@ dependencies = [
     "openai",
 ]
 
+[project.scripts]
+jobapply = "jobapply.cli:app"
+
 [dependency-groups]
 dev = [
     "pytest",

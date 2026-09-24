@@ -1,4 +1,5 @@
-# Fictional example only. Replace with facts you can support from your records.
+# Fictional example only. Replace values only with facts you can support from your records.
+# Required: resume_path must point to an existing, readable PDF. All other fields are optional.
 full_name: Riley Example
 email: riley@example.test
 phone: "+1-555-010-2040"
@@ -38,5 +39,7 @@ preferences:
   employment_types:
     - Full-time
 
-# Add only explicitly known answers. Omitted sensitive answers stay unknown.
+# Sensitive fields (for example work authorization, sponsorship, disability, veteran,
+# or criminal history) require an explicit answer you supplied. Never infer them.
+# Add only answers you explicitly choose to provide; omitted answers stay unknown.
 sensitive_answers: {}
