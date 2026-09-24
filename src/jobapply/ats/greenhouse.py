@@ -6,7 +6,7 @@ from jobapply.ats.base import BaseATSAdapter
 class GreenhouseAdapter(BaseATSAdapter):
     """Adapter for boards hosted by Greenhouse."""
 
-    allowed_hosts = ("greenhouse.io", "greenhouse.com")
+    allowed_hosts = ("boards.greenhouse.io", "job-boards.greenhouse.io")
     form_selector = "#application-form, form"
     context_selectors = (
         "#job-description",

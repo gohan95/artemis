@@ -6,7 +6,7 @@ from jobapply.ats.base import BaseATSAdapter
 class LeverAdapter(BaseATSAdapter):
     """Adapter for jobs hosted by Lever."""
 
-    allowed_hosts = ("lever.co",)
+    allowed_hosts = ("jobs.lever.co",)
     form_selector = "form.application-form, form"
     context_selectors = (
         ".posting-description",

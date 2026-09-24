@@ -38,3 +38,29 @@ Implemented a shared Playwright adapter contract and Greenhouse/Lever adapters. 
 ## Commit
 
 Commit: feat: automate supported Greenhouse and Lever forms.
+
+## Review fix round 1/5
+
+### Changes
+
+- Restricted adapter recognition to the fixture-backed HTTPS hosts: `boards.greenhouse.io`, `job-boards.greenhouse.io`, and `jobs.lever.co`. Arbitrary subdomains and `greenhouse.com`/`lever.com` hosts are rejected.
+- Added a submit preflight over required form controls. Unsupported, invalid, unanswered, or required file controls without a selected file return `uncertain` before any click.
+- Restricted the candidate submit control to native submit-capable buttons and inputs, then matched its accessible name against “submit” or “apply”.
+- Added a main-frame navigation route guard during submission. Off-allowlist navigation requests are aborted, and an off-host page can never be reported as confirmed.
+- Kept filling and submission separate; no CAPTCHA or login bypass was added.
+
+### TDD and verification evidence
+
+- RED: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest tests/test_ats_adapters.py -q` initially reported 3 failed, 3 passed, and 16 skipped. Failures demonstrated arbitrary Greenhouse/Lever subdomains being accepted and a required file being treated as ready without a selected file. The first invocation without the task-local uv cache was blocked by cache permissions before pytest started.
+- GREEN/focused: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest tests/test_ats_adapters.py -q` reported 6 passed, 17 skipped.
+- Full suite: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest -q` reported 116 passed, 17 skipped.
+- The 17 browser tests were skipped because the local browser could not start in this environment. Their behavior remains unverified here; no live ATS calls were made.
+- `git diff --check` passed. Compile checks and self-review are recorded for this fix round before commit.
+
+### Remaining concern
+
+Confidence is moderate. Exact-host checks and the pure required-control readiness rules have runnable coverage, and the full Python suite passes. Native submit selection and redirect interception have fixture-backed browser tests but still need a browser-enabled run.
+
+### Commit
+
+Commit message: `fix: harden ATS submission review findings`.

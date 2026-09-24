@@ -52,9 +52,12 @@ class BaseATSAdapter:
     )
     navigation_timeout_ms = 15_000
     action_timeout_ms = 5_000
+    native_submit_selector = (
+        "button[type='submit'], button:not([type]), input[type='submit'], input[type='image']"
+    )
 
     def matches(self, page) -> bool:
-        """Accept only HTTPS pages on an exact allowed host or its subdomain."""
+        """Accept only HTTPS pages on an explicitly supported board host."""
         try:
             return self._is_allowed_url(page.url)
         except (AttributeError, ValueError):
@@ -64,10 +67,7 @@ class BaseATSAdapter:
         try:
             parsed = urlsplit(url)
             hostname = (parsed.hostname or "").lower().rstrip(".")
-            return parsed.scheme == "https" and any(
-                hostname == allowed or hostname.endswith("." + allowed)
-                for allowed in self.allowed_hosts
-            )
+            return parsed.scheme == "https" and hostname in self.allowed_hosts
         except ValueError:
             return False
 
@@ -263,11 +263,31 @@ class BaseATSAdapter:
         form = page.locator(self.form_selector)
         if await form.count() != 1:
             return SubmissionResult("uncertain", "application form is missing or ambiguous")
+        controls = await form.evaluate(
+            """form => Array.from(form.elements).filter(element => element.required).map(element => {
+              const tag = element.tagName.toLowerCase();
+              const type = (element.type || '').toLowerCase();
+              const supported = tag === 'textarea' || tag === 'select' ||
+                (tag === 'input' && ['text', 'email', 'tel', 'url', 'search', 'checkbox', 'file'].includes(type));
+              return {
+                required: true,
+                supported,
+                valid: element.validity ? element.validity.valid : false,
+                file: tag === 'input' && type === 'file',
+                fileSelected: tag === 'input' && type === 'file' && element.files.length > 0
+              };
+            })"""
+        )
+        if not self._required_controls_are_ready(controls):
+            return SubmissionResult(
+                "uncertain", "required controls are unsupported, invalid, unanswered, or missing a selected file"
+            )
+
         import re
 
         submit_button = form.get_by_role(
             "button", name=re.compile(r"(submit|apply)", re.I)
-        )
+        ).and_(form.locator(self.native_submit_selector))
         count = await submit_button.count()
         if count != 1:
             return SubmissionResult("uncertain", "submit control is missing or ambiguous")
@@ -278,16 +298,46 @@ class BaseATSAdapter:
         )
         if not self._is_allowed_url(urljoin(page.url, action)):
             return SubmissionResult("uncertain", "submit target is outside the HTTPS host allowlist")
+        blocked_navigation: list[str] = []
+
+        async def guard_main_frame_navigation(route) -> None:
+            request = route.request
+            frame = request.frame
+            if request.is_navigation_request() and frame == frame.page.main_frame:
+                if not self._is_allowed_url(request.url):
+                    blocked_navigation.append(request.url)
+                    await route.abort()
+                    return
+            await route.fallback()
+
         try:
+            await page.context.route("**/*", guard_main_frame_navigation)
             await submit_button.click()
         except Exception as error:
             return SubmissionResult("uncertain", f"submit outcome could not be observed: {error}")
+        finally:
+            try:
+                await page.context.unroute("**/*", guard_main_frame_navigation)
+            except Exception:
+                pass
+
+        if blocked_navigation or not self.matches(page):
+            return SubmissionResult("uncertain", "off-allowlist main-frame navigation was blocked")
 
         if await self._has_validation_error(page):
             return SubmissionResult("rejected", "required-field validation rejected the application")
         if await self.confirm_submission(page):
             return SubmissionResult("confirmed", "application confirmation was observed")
         return SubmissionResult("uncertain", "submission confirmation was not observed")
+
+    @staticmethod
+    def _required_controls_are_ready(controls: Sequence[dict]) -> bool:
+        for control in controls:
+            if not control["supported"] or not control["valid"]:
+                return False
+            if control["file"] and not control["fileSelected"]:
+                return False
+        return True
 
     async def _has_validation_error(self, page) -> bool:
         for selector in ("[role='alert']", ".error", "input:invalid", "select:invalid", "textarea:invalid"):
