@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head><title>Acme Corp - Software Engineer</title></head>
+<body>
+  <div id="application-form-wrapper">
+    <form id="application-form">
+      <label for="first_name">Full Name</label>
+      <input type="text" id="first_name" name="full_name" required>
+
+      <label for="email_field">Email Address</label>
+      <input type="email" id="email_field" name="email" required>
+
+      <label for="phone_field">Phone Number</label>
+      <input type="tel" id="phone_field" name="phone">
+
+      <label for="resume_upload">Resume</label>
+      <input type="file" id="resume_upload" name="resume" required>
+
+      <fieldset>
+        <legend>I agree to the terms of service</legend>
+        <input type="checkbox" id="agree_terms" name="agree_terms" required>
+      </fieldset>
+
+      <!-- Native select: a straightforward supported case -->
+      <label for="employment_type">Employment Type</label>
+      <select id="employment_type" name="employment_type">
+        <option value=""></option>
+        <option value="ft">Full-time</option>
+        <option value="pt">Part-time</option>
+      </select>
+
+      <!-- Custom combobox: how real Greenhouse renders a work-authorization
+           style single-select question. -->
+      <div id="work_auth_label">Are you authorized to work in the United States?</div>
+      <div id="work_auth" role="combobox" aria-labelledby="work_auth_label"
+           aria-owns="work_auth_listbox" tabindex="0"
+           style="display:inline-block; min-width: 120px; min-height: 20px; border: 1px solid #000;">Select…</div>
+      <ul id="work_auth_listbox" role="listbox" hidden>
+        <li role="option">Yes</li>
+        <li role="option">No</li>
+      </ul>
+
+      <button type="submit" id="submit_application">Submit Application</button>
+    </form>
+  </div>
+  <script>
+    // Toggle the listbox open/closed and record clicks, without navigating.
+    document.getElementById('work_auth').addEventListener('click', () => {
+      document.getElementById('work_auth_listbox').hidden = false;
+    });
+    document.querySelectorAll('#work_auth_listbox [role=option]').forEach((option) => {
+      option.addEventListener('click', () => {
+        document.getElementById('work_auth').setAttribute('data-selected', option.textContent.trim());
+        document.getElementById('work_auth_listbox').hidden = true;
+      });
+    });
+    document.getElementById('application-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      document.body.setAttribute('data-submitted', 'true');
+    });
+  </script>
+</body>
+</html>

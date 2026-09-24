@@ -1,0 +1,38 @@
+.worktrees/
+.env
+.env.*
+!.env.example
+
+# Personal profile, resume, history, receipts, and curated job list -- all machine-local
+data/
+urls.txt
+profile.yaml
+profile.yml
+resume.pdf
+resume.docx
+resume.txt
+resumes/
+
+# IDE config
+.idea/
+
+# Local browser authentication state
+*.db
+*.sqlite
+*.sqlite3
+playwright/.auth/
+browser-state/
+.playwright/
+playwright-state.json
+storage_state.json
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+.venv/
+dist/
+build/
