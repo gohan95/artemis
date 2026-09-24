@@ -89,7 +89,6 @@ def test_settings_reads_model_names_and_keeps_missing_keys_optional(monkeypatch)
 - Create: `src/jobapply/profile.py`
 - Create: `examples/profile.example.yaml`
 - Test: `tests/test_profile.py`
-- Modify: `src/jobapply/settings.py`
 
 **Interfaces:**
 - Produces: Pydantic `Profile`, `ResumeFact`, and `EvidenceFact` models; `load_profile(path: Path) -> Profile`; `load_evidence(profile: Profile) -> list[EvidenceFact]`.
@@ -115,10 +114,10 @@ def test_missing_sensitive_answer_stays_missing(profile_yaml):
 - Test: `tests/test_history.py`
 
 **Interfaces:**
-- Produces: `ApplicationStatus` enum (`processing`, `submitted`, `deferred`, `failed`, `uncertain`); `HistoryStore(path: Path)` with `claim(url: str) -> bool`, `finish(url: str, status: ApplicationStatus, details: dict) -> None`, and `get(url: str) -> dict | None`.
+- Produces: `ApplicationStatus` enum (`processing`, `submitted`, `deferred`, `failed`, `uncertain`); `HistoryStore(path: Path)` with `claim(url: str, retry_uncertain: bool = False) -> bool`, `finish(url: str, status: ApplicationStatus, details: dict) -> None`, and `get(url: str) -> dict | None`.
 - URL identity removes fragments and known tracking parameters (`utm_*`, `lever-source`, `gh_src`) while preserving other query parameters that may identify the job.
 
-- [ ] **Step 1: Write failing tests** for first claim, second claim, URL normalization, status persistence, and the distinction between submitted and uncertain.
+- [ ] **Step 1: Write failing tests** for first claim, second claim, URL normalization, status persistence, and the distinction between submitted and uncertain. Verify an uncertain URL is refused by default and accepted only when `retry_uncertain=True`.
 
 ```python
 def test_submitted_url_cannot_be_claimed_twice(history):
@@ -128,7 +127,7 @@ def test_submitted_url_cannot_be_claimed_twice(history):
 ```
 
 - [ ] **Step 2: Run `uv run pytest tests/test_history.py -q`** and confirm the tests fail.
-- [ ] **Step 3: Implement SQLite schema and transactions.** A claimed `processing` row prevents concurrent duplicate runs. A previous `submitted` row is always skipped. An `uncertain` row requires an explicit `--retry-uncertain` CLI option and must never be retried by default.
+- [ ] **Step 3: Implement SQLite schema and transactions.** A claimed `processing` row prevents concurrent duplicate runs. A previous `submitted` row is always skipped. An `uncertain` row requires `claim(url, retry_uncertain=True)` from the explicit `--retry-uncertain` CLI option and must never be retried by default.
 - [ ] **Step 4: Run `uv run pytest tests/test_history.py -q`** and confirm persistence and duplicate behavior pass.
 - [ ] **Step 5: Commit** as `feat: track application outcomes locally`.
 
