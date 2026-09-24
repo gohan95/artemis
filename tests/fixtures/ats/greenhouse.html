@@ -6,23 +6,30 @@
   <form id="application-form">
     <label>Full Name <input name="name" required></label>
     <label>Email <input type="email" name="email" required></label>
-    <label>Work authorization
-      <select name="authorization" required><option value="">Choose</option><option>Yes</option><option>No</option></select>
-    </label>
+    <label for="authorization">Are you legally authorized to work in the country where this job is located?</label>
+    <select id="authorization" name="authorization" required><option value="">Choose</option><option>Yes</option><option>No</option></select>
     <fieldset><legend>Remote work</legend>
       <label><input type="checkbox" name="remote" value="yes"> Yes</label>
     </fieldset>
     <label>Resume <input type="file" name="resume" accept=".pdf"></label>
     <label>Why this role? <textarea name="why"></textarea></label>
+    <label>Describe your team leadership <textarea name="leadership"></textarea></label>
+    <label for="referral">When did you first hear about us?</label>
+    <input id="referral" name="referral" type="date">
     <button type="submit">Submit Application</button>
     <p role="alert" id="validation-error" hidden>Please correct the highlighted fields.</p>
   </form>
   <div id="confirmation" hidden>Thank you for applying</div>
 </main>
 <script>
+const scenario = new URL(window.location.href).searchParams.get('scenario');
+if (scenario === 'generated') document.querySelector('[name=leadership]').required = true;
+if (scenario === 'unsupported') document.querySelector('[name=referral]').required = true;
 document.querySelector('form').addEventListener('submit', event => {
   event.preventDefault();
-  document.querySelector('#validation-error').hidden = false;
+  if (scenario !== 'unknown-confirmation') {
+    document.querySelector('#confirmation').hidden = false;
+  }
 });
 </script>
 </body></html>
