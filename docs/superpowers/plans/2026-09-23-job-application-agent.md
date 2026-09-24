@@ -289,12 +289,15 @@ async def test_dry_run_never_calls_submit(workflow, adapter):
 **Files:**
 - Create: `src/jobapply/cli.py`
 - Create: `tests/test_cli.py`
+- Modify: `src/jobapply/history.py`
+- Test: `tests/test_history.py`
 - Modify: `pyproject.toml`
 - Modify: `.gitignore`
 
 **Interfaces:**
 - Produces: `jobapply validate-profile`; `jobapply apply <urls-file> [--dry-run] [--retry-uncertain]`; `jobapply history [--status STATUS]`.
 - URLs file is UTF-8 plain text, one URL per line; blank lines and lines beginning with `#` are ignored.
+- `HistoryStore.list(status: ApplicationStatus | None = None) -> list[dict]` returns stored records, optionally filtered by status, for the history command.
 
 - [ ] **Step 1: Write failing CliRunner tests** for usage/help, URL parsing, profile validation, dry run, per-job outcome summaries, and exit codes when one or more links defer or fail.
 
