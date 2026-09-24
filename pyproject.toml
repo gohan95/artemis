@@ -3,23 +3,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "job-application-agent"
+name = "artemis"
 version = "0.1.0"
-description = "A personal CLI for processing curated job applications"
+description = "A personal AI assistant for job hunting: fills and submits curated job applications"
 requires-python = ">=3.12"
 dependencies = [
     "typer",
     "pydantic",
     "pydantic-settings",
     "pyyaml",
-    "pypdf",
-    "playwright",
-    "httpx",
-    "openai",
+    # Drop-in, undetected Playwright fork -- the only browser engine this
+    # project uses. See src/artemis/browser.py for why (it patches
+    # automation tells stock Playwright cannot, at the CDP/launch-args
+    # layer). Its API surface is Playwright's, so no separate `playwright`
+    # dependency is needed alongside it.
+    "patchright>=1.63,<1.64",
 ]
 
 [project.scripts]
-jobapply = "jobapply.cli:app"
+artemis = "artemis.cli:app"
 
 [dependency-groups]
 dev = [
@@ -28,7 +30,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/jobapply"]
+packages = ["src/artemis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

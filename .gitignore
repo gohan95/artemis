@@ -3,9 +3,9 @@
 .env.*
 !.env.example
 
-# Personal profile and resume data
-data/profile.*
-data/resume*
+# Personal profile, resume, history, receipts, and curated job list -- all machine-local
+data/
+urls.txt
 profile.yaml
 profile.yml
 resume.pdf
@@ -13,7 +13,10 @@ resume.docx
 resume.txt
 resumes/
 
-# Local application history and browser authentication state
+# IDE config
+.idea/
+
+# Local browser authentication state
 *.db
 *.sqlite
 *.sqlite3
