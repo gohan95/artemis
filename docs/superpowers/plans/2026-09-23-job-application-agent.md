@@ -321,9 +321,12 @@ def test_apply_dry_run_reports_without_submission(cli_runner, fake_workflow):
 - Create: `tests/test_end_to_end.py`
 - Modify: `tests/fixtures/ats/greenhouse.html`
 - Modify: `tests/fixtures/ats/lever.html`
+- Modify: `src/jobapply/ats/base.py`
+- Modify: `tests/test_ats_adapters.py`
 
 **Interfaces:**
 - Consumes: the CLI, workflow, SQLite history, local ATS adapters, fake Jev client, and fake text generator from prior tasks.
+- Field identity matching normalizes case and surrounding/repeated whitespace across names, IDs, and accessible labels; if that produces multiple field matches, filling defers as ambiguous.
 
 - [ ] **Step 1: Write end-to-end scenarios** for a complete profile-backed application, an application requiring a generated response, missing sensitive field deferral, duplicate rerun, unsupported question deferral, and unknown submit confirmation.
 
