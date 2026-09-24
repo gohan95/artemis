@@ -323,6 +323,11 @@ async def test_missing_sensitive_value_is_never_sent_to_jev(tmp_path, profile, e
     [
         "Will you need an employer to sponsor your visa?",
         "Have you ever received a criminal conviction?",
+        "Have you ever been arrested?",
+        "Have you ever been charged with an offense?",
+        "Have you ever been incarcerated?",
+        "Have you ever entered a plea?",
+        "Has a conviction ever been expunged?",
     ],
 )
 async def test_alternate_sensitive_free_text_defers_before_generation(tmp_path, profile, evidence, label):

@@ -150,6 +150,11 @@ def test_resume_attachment_is_not_a_textual_field_answer(profile):
     [
         "Will you need an employer to sponsor your visa?",
         "Have you ever received a criminal conviction?",
+        "Have you ever been arrested?",
+        "Have you ever been charged with an offense?",
+        "Have you ever been incarcerated?",
+        "Have you ever entered a plea?",
+        "Has a conviction ever been expunged?",
         "Do you belong to a protected class?",
         "What is your current gender identity?",
     ],

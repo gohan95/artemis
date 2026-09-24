@@ -49,7 +49,9 @@ _SENSITIVE_QUESTION_PATTERNS = tuple(re.compile(pattern) for pattern in (
     r"\b(?:visa|immigration|sponsor(?:ship)?)\b",
     r"\b(?:disability|disabled|medical condition|accommodation)\b",
     r"\b(?:veteran|military|armed forces|military service)\b",
-    r"\b(?:convict(?:ed|ion)?|criminal record|criminal history|felony|felonies)\b",
+    r"\b(?:arrest(?:ed|s)?|charg(?:e|ed|es|ing)|offen[cs]e(?:s)?|"
+    r"incarcerat(?:ed|ion)|plea(?:s)?|convict(?:ed|ion(?:s)?)?|"
+    r"expung(?:e|ed|ement(?:s)?)|criminal record|criminal history|felon(?:y|ies))\b",
     r"\b(?:race|racial|ethnic(?:ity)?|national origin|religion|religious affiliation)\b",
     r"\b(?:gender identity|gender|sex|sexual orientation)\b",
     r"\b(?:date of birth|age|pregnan(?:t|cy)|marital status|genetic information)\b",

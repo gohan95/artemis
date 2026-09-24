@@ -60,3 +60,17 @@ The 27 skips are browser-backed ATS adapter tests. Local Chrome launched and the
 - Updated brief interface includes `mapping.py` and `tests/test_mapping.py`, with `is_sensitive_question(question) -> bool` as the mapping API.
 - Added focused mapping coverage for alternate sponsorship and conviction wording, explicit protected-class and gender wording, and ordinary application questions. The initial run caught the missing generic “protected class” wording; added that deterministic pattern.
 - Mapping, workflow, and ATS adapter suites: **60 passed, 27 skipped**. Full suite: **149 passed, 27 skipped**.
+
+## Review fix round 2/5
+
+### Finding addressed
+
+- Expanded criminal-history wording detection to include arrest, charge, offense/offence, incarceration, plea, conviction variants, and expungement wording. Exact mapped answers still resolve through explicit sensitive profile aliases before the conservative wording guard; unmatched sensitive questions defer before Jev or generation.
+
+### TDD and verification
+
+- **RED:** new alternate-wording tests failed for arrest, charge/offense, incarceration, and plea phrasing in both mapping and workflow behavior. The workflow cases incorrectly reached submission; expungement was already covered through its reference to conviction.
+- **GREEN:** `env UV_CACHE_DIR=/private/tmp/task8-round2-uv-cache uv run pytest tests/test_mapping.py tests/test_workflow.py -q` — **57 passed**.
+- Focused mapping/workflow/adapter suite: `env UV_CACHE_DIR=/private/tmp/task8-round2-uv-cache uv run pytest tests/test_mapping.py tests/test_workflow.py tests/test_ats_adapters.py -q` — **70 passed, 27 skipped**.
+- Full suite: `env UV_CACHE_DIR=/private/tmp/task8-round2-uv-cache uv run pytest -q` — **159 passed, 27 skipped**.
+- No network, browser, or model calls were made. Browser-backed adapter tests remain skipped in this environment.
