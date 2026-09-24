@@ -1,5 +1,6 @@
 """Deterministic exact-label mappings from form questions to profile facts."""
 
+import re
 from typing import Any
 
 from jobapply.forms import FieldAnswer, FormQuestion
@@ -42,6 +43,18 @@ _SENSITIVE_ALIASES = {
     "do you have a criminal history?": "criminal_history",
 }
 
+_SENSITIVE_QUESTION_PATTERNS = tuple(re.compile(pattern) for pattern in (
+    r"\bprotected class(?:es)?\b",
+    r"\b(?:authorized|eligible|permitted) to work\b",
+    r"\b(?:visa|immigration|sponsor(?:ship)?)\b",
+    r"\b(?:disability|disabled|medical condition|accommodation)\b",
+    r"\b(?:veteran|military|armed forces|military service)\b",
+    r"\b(?:convict(?:ed|ion)?|criminal record|criminal history|felony|felonies)\b",
+    r"\b(?:race|racial|ethnic(?:ity)?|national origin|religion|religious affiliation)\b",
+    r"\b(?:gender identity|gender|sex|sexual orientation)\b",
+    r"\b(?:date of birth|age|pregnan(?:t|cy)|marital status|genetic information)\b",
+))
+
 _RESUME_ALIASES = frozenset({"resume", "resume attachment", "attach resume"})
 _SUPPORTED_KINDS = frozenset({"text", "email", "phone", "select"})
 
@@ -50,6 +63,15 @@ def normalize_label(value: str) -> str:
     """Case-fold and collapse whitespace without changing punctuation."""
 
     return " ".join(value.split()).casefold()
+
+
+def is_sensitive_question(question: FormQuestion) -> bool:
+    """Conservatively identify sensitive or protected-class application questions."""
+
+    label = normalize_label(question.label)
+    return label in _SENSITIVE_ALIASES or any(
+        pattern.search(label) for pattern in _SENSITIVE_QUESTION_PATTERNS
+    )
 
 
 def _serialize(value: Any) -> str:

@@ -13,6 +13,7 @@ from jobapply.mapping import (
     _is_known_question,
     _is_resume_question,
     _question_profile_value,
+    is_sensitive_question,
     map_known_question,
 )
 from jobapply.policy import submission_decision, validate_and_render_answer
@@ -101,7 +102,7 @@ class ApplicationWorkflow:
                     outcomes[index] = await self._process_url(
                         url, dry_run, retry_uncertain, page_factory, already_claimed=True
                     )
-            return outcomes
+            return self._refresh_unclaimed_outcomes(urls, claimed, outcomes)
         finally:
             if browser is not None:
                 await browser.close()
@@ -147,6 +148,11 @@ class ApplicationWorkflow:
                 if mapped is not None:
                     answers.append(mapped)
                     continue
+
+                if is_sensitive_question(question):
+                    return self._finish(
+                        canonical, ApplicationStatus.deferred, "sensitive_answer_missing"
+                    )
 
                 resolved = _question_profile_value(question, self.profile)
                 # Sensitive fields are never delegated to Jev or generated text.
@@ -338,6 +344,12 @@ class ApplicationWorkflow:
             if success:
                 canonical = self.history.get(url)["url"]
                 outcomes[index] = self._finish(canonical, ApplicationStatus.deferred, reason)
+        return self._refresh_unclaimed_outcomes(urls, claimed, outcomes)
+
+    def _refresh_unclaimed_outcomes(self, urls, claimed, outcomes):
+        for index, (url, success) in enumerate(zip(urls, claimed)):
+            if not success:
+                outcomes[index] = self._existing_outcome(url)
         return outcomes
 
     def _finish(self, url, status, reason, details=None):

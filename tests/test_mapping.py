@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from jobapply.forms import FormQuestion
-from jobapply.mapping import map_known_question
+from jobapply.mapping import is_sensitive_question, map_known_question
 from jobapply.profile import Profile
 
 
@@ -143,3 +143,32 @@ def test_resume_attachment_is_not_a_textual_field_answer(profile):
     question = FormQuestion("resume", "Resume", True, "text", [], None)
 
     assert map_known_question(question, profile) is None
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Will you need an employer to sponsor your visa?",
+        "Have you ever received a criminal conviction?",
+        "Do you belong to a protected class?",
+        "What is your current gender identity?",
+    ],
+)
+def test_sensitive_or_protected_class_wording_is_detected(label):
+    question = FormQuestion("q1", label, True, "text", [], None)
+
+    assert is_sensitive_question(question) is True
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Describe your team leadership experience",
+        "What is your preferred work location?",
+        "Tell us about your project history",
+    ],
+)
+def test_ordinary_application_questions_are_not_sensitive(label):
+    question = FormQuestion("q1", label, True, "text", [], None)
+
+    assert is_sensitive_question(question) is False

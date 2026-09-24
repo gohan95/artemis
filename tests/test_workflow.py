@@ -318,6 +318,126 @@ async def test_missing_sensitive_value_is_never_sent_to_jev(tmp_path, profile, e
     assert adapter.submit_calls == 0
 
 
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Will you need an employer to sponsor your visa?",
+        "Have you ever received a criminal conviction?",
+    ],
+)
+async def test_alternate_sensitive_free_text_defers_before_generation(tmp_path, profile, evidence, label):
+    question = FormQuestion("sensitive", label, True, "text", [], 200)
+    jev = FakeJev()
+    generator = FakeGenerator()
+    adapter = FakeAdapter([*standard_questions(), question])
+    workflow = make_workflow(tmp_path, profile, evidence, adapter, jev=jev, generator=generator)
+
+    outcome = (await workflow.run([URL]))[0]
+
+    assert outcome.status == ApplicationStatus.deferred
+    assert generator.calls == []
+    assert jev.calls == []
+    assert adapter.fill_calls == []
+    assert adapter.submit_calls == 0
+
+
+async def test_production_batch_duplicate_reports_completed_first_result(
+    tmp_path, profile, evidence, monkeypatch
+):
+    from types import ModuleType
+    import sys
+
+    class Browser:
+        async def new_page(self):
+            class NavigablePage(FakePage):
+                async def goto(self, url, wait_until=None):
+                    self.url = url
+            return NavigablePage()
+
+        async def close(self):
+            pass
+
+    class Chromium:
+        async def launch(self, headless=True):
+            return Browser()
+
+    class Playwright:
+        chromium = Chromium()
+
+        async def stop(self):
+            pass
+
+    async def start():
+        return Playwright()
+
+    async_playwright_module = ModuleType("playwright.async_api")
+    async_playwright_module.async_playwright = lambda: SimpleNamespace(start=start)
+    playwright_module = ModuleType("playwright")
+    playwright_module.async_api = async_playwright_module
+    monkeypatch.setitem(sys.modules, "playwright", playwright_module)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", async_playwright_module)
+
+    adapter = FakeAdapter(standard_questions())
+    workflow = ApplicationWorkflow(
+        profile=profile,
+        evidence=evidence,
+        history=HistoryStore(tmp_path / "history.sqlite3"),
+        adapters=[adapter],
+        jev_client=FakeJev(),
+        generator=FakeGenerator(),
+        settings=Settings(),
+    )
+
+    outcomes = await workflow.run([
+        "https://boards.greenhouse.io/example/jobs/123?utm_source=one",
+        "https://boards.greenhouse.io/example/jobs/123?utm_medium=two",
+    ])
+
+    assert [outcome.status for outcome in outcomes] == [
+        ApplicationStatus.submitted,
+        ApplicationStatus.submitted,
+    ]
+    assert outcomes[1].reason == "already processed"
+    assert adapter.submit_calls == 1
+
+
+async def test_browser_startup_failure_refreshes_same_batch_duplicate(
+    tmp_path, profile, evidence, monkeypatch
+):
+    from types import ModuleType
+    import sys
+
+    async def start():
+        raise RuntimeError("browser unavailable")
+
+    async_playwright_module = ModuleType("playwright.async_api")
+    async_playwright_module.async_playwright = lambda: SimpleNamespace(start=start)
+    playwright_module = ModuleType("playwright")
+    playwright_module.async_api = async_playwright_module
+    monkeypatch.setitem(sys.modules, "playwright", playwright_module)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", async_playwright_module)
+    workflow = ApplicationWorkflow(
+        profile=profile,
+        evidence=evidence,
+        history=HistoryStore(tmp_path / "history.sqlite3"),
+        adapters=[],
+        jev_client=FakeJev(),
+        generator=FakeGenerator(),
+        settings=Settings(),
+    )
+
+    outcomes = await workflow.run([
+        "https://boards.greenhouse.io/example/jobs/123?utm_source=one",
+        "https://boards.greenhouse.io/example/jobs/123?utm_medium=two",
+    ])
+
+    assert [outcome.status for outcome in outcomes] == [
+        ApplicationStatus.deferred,
+        ApplicationStatus.deferred,
+    ]
+    assert outcomes[1].reason == "already processed"
+
+
 async def test_uncertain_submit_retries_only_when_explicitly_requested(tmp_path, profile, evidence):
     adapter = FakeAdapter(
         standard_questions(),
