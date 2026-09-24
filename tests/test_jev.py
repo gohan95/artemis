@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from jobapply.settings import Settings
-from jobapply.jev import JevClient
+from jobapply.jev import ClaimSupport, JevClient
 
 
 def make_client(response=None, handler=None, **settings):
@@ -178,3 +178,55 @@ def test_settings_without_credentials_defer_without_network():
     result = client.decide({"facts": []}, {"q": {"text": "Email", "type": "choice", "options": ["defer"]}})
 
     assert result["q"].value == "defer"
+
+
+def test_claim_support_is_typed_logged_and_does_not_expand_decide_choices(caplog):
+    caplog.set_level("INFO")
+    client = make_client({"claim": {"type": "choice", "choice": "supported", "confidence": 0.99, "probabilities": {"supported": 0.99, "unsupported": 0.01, "defer": 0.0}, "evidence_ids": ["work.acme.team"]}})
+
+    result = client.check_claim_support(
+        "Describe your experience",
+        "I led a team of eight engineers.",
+        [{"id": "work.acme.team", "value": "Led a team of eight engineers"}],
+    )
+
+    assert result == ClaimSupport("supported", 0.99, ["work.acme.team"])
+    assert caplog.records[-1].jev_support_status == "supported"
+    assert caplog.records[-1].jev_support_confidence == 0.99
+    choices = client.decide(
+        {"facts": [{"id": "work.acme.team"}]},
+        {"q": {"text": "Experience?", "type": "choice", "options": ["supported", "generated text", "defer"]}},
+    )
+    assert choices["q"].value == "defer"
+
+
+def test_claim_support_without_credentials_defers_without_network():
+    client = JevClient(Settings(jev_api_key=None, jev_model=None))
+
+    result = client.check_claim_support(
+        "Describe experience", "I led a team", [{"id": "work.acme.team", "value": "Led a team"}]
+    )
+
+    assert result == ClaimSupport("defer", 0.0, [])
+
+
+def test_claim_support_defers_on_low_confidence_or_invalid_citation():
+    client = make_client({"claim": {"type": "choice", "choice": "supported", "confidence": 0.97, "probabilities": {"supported": 0.97, "unsupported": 0.02, "defer": 0.01}, "evidence_ids": ["work.acme.team"]}})
+
+    result = client.check_claim_support(
+        "Describe your experience", "I led a team.", [{"id": "work.acme.team", "value": "Led a team"}]
+    )
+
+    assert result.status == "defer"
+    assert result.confidence == 0.97
+
+
+def test_claim_support_result_preserves_only_submitted_evidence_ids():
+    client = make_client({"claim": {"type": "choice", "choice": "supported", "confidence": 0.99, "probabilities": {"supported": 0.99, "unsupported": 0.01, "defer": 0.0}, "evidence_ids": ["private.fact"]}})
+
+    result = client.check_claim_support(
+        "Describe experience", "I led a team", [{"id": "work.acme.team", "value": "Led a team"}]
+    )
+
+    assert result.status == "supported"
+    assert result.evidence_ids == ["work.acme.team"]

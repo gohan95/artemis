@@ -1,7 +1,17 @@
 from pathlib import Path
 
+import pytest
+
 from jobapply.forms import FieldAnswer, FormQuestion
-from jobapply.policy import submission_decision
+from jobapply.policy import (
+    claim_support_is_confirmed,
+    evaluate_draft_support,
+    submission_decision,
+    validate_draft,
+)
+from jobapply.generation import DraftAnswer, SupportedClaim
+from jobapply.jev import ClaimSupport
+from jobapply.profile import EvidenceFact
 from jobapply.profile import Profile
 
 
@@ -144,3 +154,70 @@ def test_unhandled_required_resume_upload_defers_without_a_textual_answer():
 
     assert decision.action == "defer"
     assert decision.reason_codes == ["missing_required_answer"]
+
+
+def test_generated_draft_validation_only_checks_claim_evidence_and_length():
+    draft = DraftAnswer(
+        claims=[SupportedClaim(text="I led a team of eight.", evidence_ids=["work.acme.team"])]
+    )
+    evidence = [EvidenceFact(id="work.acme.team", value="Led eight engineers", source="profile")]
+
+    decision = validate_draft(draft, evidence, max_length=80)
+
+    assert decision.action == "submit"
+    assert decision.reason_codes == []
+
+
+@pytest.mark.parametrize(
+    "support",
+    [
+        ClaimSupport(status="unsupported", confidence=0.99, evidence_ids=["work.acme.team"]),
+        ClaimSupport(status="supported", confidence=0.97, evidence_ids=["work.acme.team"]),
+        ClaimSupport(status="supported", confidence=0.99, evidence_ids=["other.fact"]),
+        ClaimSupport(status="defer", confidence=1.0, evidence_ids=["work.acme.team"]),
+    ],
+)
+def test_claim_support_must_be_supported_cited_and_at_least_point_98(support):
+    confirmed = claim_support_is_confirmed(support, ["work.acme.team"])
+
+    assert confirmed is False
+
+
+def test_supported_claim_with_high_confidence_and_matching_citations_passes():
+    confirmed = claim_support_is_confirmed(
+        ClaimSupport(status="supported", confidence=0.98, evidence_ids=["work.acme.team"]), ["work.acme.team"]
+    )
+
+    assert confirmed is True
+
+
+def test_draft_support_checks_every_claim_using_only_its_references():
+    class FakeJev:
+        def __init__(self):
+            self.calls = []
+
+        def check_claim_support(self, question, claim, evidence):
+            self.calls.append((question, claim, evidence))
+            return ClaimSupport(
+                status="supported",
+                confidence=0.99,
+                evidence_ids=[fact["id"] for fact in evidence],
+            )
+
+    evidence = [
+        EvidenceFact(id="work.acme.team", value="Led eight engineers", source="profile"),
+        EvidenceFact(id="work.acme.role", value="Engineering manager", source="profile"),
+    ]
+    draft = DraftAnswer(
+        claims=[
+            SupportedClaim(text="I led eight engineers.", evidence_ids=["work.acme.team"]),
+            SupportedClaim(text="I was an engineering manager.", evidence_ids=["work.acme.role"]),
+        ]
+    )
+    jev = FakeJev()
+
+    assert evaluate_draft_support(draft, evidence, FormQuestion("q", "Describe leadership", True, "text", [], None), jev)
+    assert jev.calls == [
+        ("Describe leadership", "I led eight engineers.", [{"id": "work.acme.team", "value": "Led eight engineers"}]),
+        ("Describe leadership", "I was an engineering manager.", [{"id": "work.acme.role", "value": "Engineering manager"}]),
+    ]
