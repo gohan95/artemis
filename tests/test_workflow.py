@@ -9,6 +9,7 @@ from jobapply.history import ApplicationStatus, HistoryStore
 from jobapply.jev import ClaimSupport, DecisionAnswer
 from jobapply.profile import EvidenceFact, Profile
 from jobapply.settings import Settings
+from jobapply.ats.greenhouse import GreenhouseAdapter
 from jobapply.workflow import ApplicationWorkflow
 
 
@@ -39,6 +40,9 @@ class FakeAdapter:
 
     def matches(self, page):
         return page.url.startswith("https://boards.greenhouse.io/")
+
+    def supports_url(self, url):
+        return url.startswith("https://boards.greenhouse.io/")
 
     async def read_questions(self, page):
         return self.questions
@@ -149,6 +153,32 @@ async def test_unknown_ats_is_deferred_without_submission(tmp_path, profile, evi
     assert outcome.status == ApplicationStatus.deferred
     assert "unsupported" in outcome.reason
     assert adapter.submit_calls == 0
+
+
+async def test_unsupported_https_url_defers_before_constructing_a_page(tmp_path, profile, evidence):
+    page_factory_calls = []
+
+    def page_factory(url):
+        page_factory_calls.append(url)
+        return FakePage(url)
+
+    workflow = ApplicationWorkflow(
+        profile=profile,
+        evidence=evidence,
+        history=HistoryStore(tmp_path / "history.sqlite3"),
+        adapters=[GreenhouseAdapter()],
+        page_factory=page_factory,
+        jev_client=FakeJev(),
+        generator=FakeGenerator(),
+        settings=Settings(),
+    )
+
+    outcome = (await workflow.run(["https://attacker.example/jobs/1"]))[0]
+
+    assert outcome.status == ApplicationStatus.deferred
+    assert outcome.reason == "unsupported ATS"
+    assert page_factory_calls == []
+    assert workflow.history.get("https://attacker.example/jobs/1")["status"] == "deferred"
 
 
 async def test_adapter_context_error_is_persisted_as_deferred(tmp_path, profile, evidence):

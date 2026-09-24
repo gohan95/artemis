@@ -25,6 +25,8 @@ class AdapterDeferred(RuntimeError):
 class ATSAdapter(Protocol):
     """Browser operations shared by the supported ATS platforms."""
 
+    def supports_url(self, url: str) -> bool: ...
+
     def matches(self, page) -> bool: ...
 
     async def read_questions(self, page) -> list[FormQuestion]: ...
@@ -61,17 +63,21 @@ class BaseATSAdapter:
     def matches(self, page) -> bool:
         """Accept only HTTPS pages on an explicitly supported board host."""
         try:
-            return self._is_allowed_url(page.url)
+            return self.supports_url(page.url)
         except (AttributeError, ValueError):
             return False
 
-    def _is_allowed_url(self, url: str) -> bool:
+    def supports_url(self, url: str) -> bool:
+        """Return whether a URL is on this adapter's exact HTTPS board host."""
         try:
             parsed = urlsplit(url)
             hostname = (parsed.hostname or "").lower().rstrip(".")
             return parsed.scheme == "https" and hostname in self.allowed_hosts
         except ValueError:
             return False
+
+    def _is_allowed_url(self, url: str) -> bool:
+        return self.supports_url(url)
 
     def _require_supported_page(self, page) -> None:
         if not self.matches(page):

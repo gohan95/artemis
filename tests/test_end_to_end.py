@@ -101,7 +101,8 @@ class FixturePage:
 
 
 class FixturePages:
-    def __init__(self):
+    def __init__(self, redirect_to=None):
+        self.redirect_to = redirect_to
         self.outbound_requests = []
         self.requests = []
 
@@ -117,6 +118,16 @@ class FixturePages:
             request_url = route.request.url
             hostname = request_url.split("/", 3)[2]
             self.requests.append((route.request.method, route.request.resource_type, request_url))
+            if self.redirect_to is not None and "scenario=redirect" in request_url:
+                await route.fulfill(
+                    body=(
+                        "<script>window.location.replace("
+                        f"{self.redirect_to!r}"
+                        ");</script>"
+                    ),
+                    content_type="text/html",
+                )
+                return
             fixture_name = "lever.html" if hostname == "jobs.lever.co" else "greenhouse.html"
             if hostname not in {"boards.greenhouse.io", "jobs.lever.co"}:
                 self.outbound_requests.append(request_url)
@@ -135,7 +146,7 @@ def assert_only_local_fixture_navigation(local, url, scenario):
 
 
 class LocalApplication:
-    def __init__(self, tmp_path, *, sensitive=True):
+    def __init__(self, tmp_path, *, sensitive=True, redirect_to=None):
         resume = tmp_path / "resume.pdf"
         resume.write_bytes(b"local fixture resume")
         self.profile = Profile(
@@ -155,7 +166,7 @@ class LocalApplication:
         self.history = HistoryStore(tmp_path / "history.sqlite3")
         self.runner = CliRunner()
         self.adapters = [CountingAdapter(GreenhouseAdapter()), CountingAdapter(LeverAdapter())]
-        self.pages = FixturePages()
+        self.pages = FixturePages(redirect_to=redirect_to)
         self.jev = DeterministicJev()
         self.generator = DeterministicGenerator()
 
@@ -264,3 +275,17 @@ def test_cli_marks_submit_without_observable_confirmation_uncertain(tmp_path, mo
     assert record["details"]["reason"] == "submission confirmation was not observed"
     assert local.adapters[0].submit_calls == 1
     assert_only_local_fixture_navigation(local, GREENHOUSE_URL, "unknown-confirmation")
+
+
+def test_cli_aborts_initial_navigation_redirect_before_off_host_request(tmp_path, monkeypatch):
+    local = LocalApplication(tmp_path, redirect_to="https://attacker.example/landing")
+
+    result = local.run(monkeypatch, tmp_path, GREENHOUSE_URL, "redirect")
+
+    assert result.exit_code != 0
+    assert local.history.get(f"{GREENHOUSE_URL}?scenario=redirect")["status"] == ApplicationStatus.deferred
+    assert local.pages.outbound_requests == []
+    assert local.pages.requests == [
+        ("GET", "document", f"{GREENHOUSE_URL}?scenario=redirect")
+    ]
+    assert local.adapters[0].submit_calls == 0

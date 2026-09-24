@@ -93,9 +93,7 @@ class ApplicationWorkflow:
                 )
 
             async def page_factory(url):
-                page = await browser.new_page()
-                await page.goto(url, wait_until="domcontentloaded")
-                return page
+                return await browser.new_page()
 
             for index, (url, success) in enumerate(zip(urls, claimed)):
                 if success:
@@ -115,15 +113,17 @@ class ApplicationWorkflow:
         page = None
         submit_started = False
         try:
+            adapter = next(
+                (candidate for candidate in self.adapters if candidate.supports_url(url)), None
+            )
+            if adapter is None:
+                return self._finish(canonical, ApplicationStatus.deferred, "unsupported ATS")
             page = page_factory(url)
             if hasattr(page, "__await__"):
                 page = await page
-            # Injectable test factories may only construct a page; production pages
-            # are navigated by the factory above.
             if getattr(page, "url", None) != url:
-                await page.goto(url, wait_until="domcontentloaded")
-            adapter = next((candidate for candidate in self.adapters if candidate.matches(page)), None)
-            if adapter is None:
+                await self._navigate_to_supported_url(page, adapter, url)
+            if not adapter.matches(page):
                 return self._finish(canonical, ApplicationStatus.deferred, "unsupported ATS")
 
             questions = await adapter.read_questions(page)
@@ -270,6 +270,31 @@ class ApplicationWorkflow:
                     await page.close()
                 except Exception:
                     pass
+
+    async def _navigate_to_supported_url(self, page, adapter, url):
+        """Navigate only while an exact-host main-frame guard is active."""
+        blocked_urls: list[str] = []
+
+        async def guard_main_frame_navigation(route) -> None:
+            request = route.request
+            frame = request.frame
+            if request.is_navigation_request() and frame == frame.page.main_frame:
+                if not adapter.supports_url(request.url):
+                    blocked_urls.append(request.url)
+                    await route.abort()
+                    return
+            await route.fallback()
+
+        can_guard_navigation = hasattr(page, "route") and hasattr(page, "unroute")
+        if can_guard_navigation:
+            await page.route("**/*", guard_main_frame_navigation)
+        try:
+            await page.goto(url, wait_until="domcontentloaded")
+        finally:
+            if can_guard_navigation:
+                await page.unroute("**/*", guard_main_frame_navigation)
+        if blocked_urls:
+            raise RuntimeError("off-allowlist main-frame navigation was blocked")
 
     def _decide_structured_questions(self, questions):
         unresolved = [
