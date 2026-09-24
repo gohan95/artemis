@@ -89,4 +89,30 @@ Commit message: `fix: harden ATS submission review findings`.
 
 ### Commit
 
-Pending.
+`2d54f52 fix: validate ARIA-required ATS controls before submit`.
+
+## Review fix round 3/5
+
+### Changes
+
+- Submission now uses the questions returned by `read_questions()` and blocks each required `kind="unknown"` question unless the matching native file control has a selected file.
+- Required multiple selects are unsupported in the readiness snapshot and cannot pass preflight merely because an option is selected.
+- Extraction now defers for custom switch, listbox, slider, and spinbutton roles, as well as any non-native control marked `aria-required="true"`.
+- Preserved the HTTPS host allowlist, native submit control/name requirement, and off-allowlist main-frame redirect guard.
+
+### TDD and verification evidence
+
+- RED: The new pure tests failed before the implementation: readiness incorrectly accepted both a required `kind="unknown"` control with a value and a populated required multi-select (2 failed).
+- GREEN/focused: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest tests/test_ats_adapters.py -q` reported 13 passed, 25 skipped.
+- Full suite: `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run pytest -q` reported 123 passed, 25 skipped.
+- The 25 browser fixture tests were skipped because Playwright could not start the local browser in this environment. No live ATS pages or network requests were used.
+- `UV_CACHE_DIR=/tmp/trailhead-uv-cache uv run python -m compileall -q src/jobapply/ats` and `git diff --check` passed.
+
+### Self-review and concerns
+
+- The custom widget browser cases cover switch/listbox/slider/spinbutton roles and a generic non-native `aria-required` control; the required multi-select case confirms the submit handler is not activated. Those DOM cases still need a browser-enabled run.
+- Confidence: moderate. Pure readiness, focused tests, full suite, compile, and diff checks pass; browser interaction remains unverified in this environment.
+
+### Commit
+
+`fix: block unsupported required ATS questions before submit`.

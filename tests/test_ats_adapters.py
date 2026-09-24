@@ -7,7 +7,7 @@ from playwright.async_api import Error, async_playwright
 from jobapply.ats.base import AdapterDeferred, BaseATSAdapter, SubmissionResult
 from jobapply.ats.greenhouse import GreenhouseAdapter
 from jobapply.ats.lever import LeverAdapter
-from jobapply.forms import FieldAnswer
+from jobapply.forms import FieldAnswer, FormQuestion
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ats"
@@ -97,6 +97,29 @@ def test_required_checkbox_readiness_uses_checked_state():
     assert not BaseATSAdapter._required_controls_are_ready([control])
     control["checked"] = True
     assert BaseATSAdapter._required_controls_are_ready([control])
+
+
+def test_required_unknown_question_is_unready_unless_it_is_a_selected_file():
+    unknown = {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "answer", "checked": False, "kind": "unknown"}
+    assert not BaseATSAdapter._required_controls_are_ready([unknown])
+
+    selected_file = {"required": True, "supported": True, "valid": True, "file": True, "fileSelected": True, "value": "", "checked": False, "kind": "file"}
+    assert BaseATSAdapter._required_controls_are_ready([selected_file])
+
+
+def test_required_multi_select_is_unready_even_with_a_selected_value():
+    control = {"required": True, "supported": True, "valid": True, "file": False, "fileSelected": False, "value": "option-a", "checked": False, "kind": "select", "multiple": True}
+    assert not BaseATSAdapter._required_controls_are_ready([control])
+
+
+def test_submit_preflight_requires_selected_file_for_extracted_unknown_question():
+    question = FormQuestion(
+        id="resume", label="Resume", required=True, kind="unknown", options=[], max_length=None
+    )
+    selected_file = {"id": "resume", "file": True, "fileSelected": True}
+    unselected_file = {"id": "resume", "file": True, "fileSelected": False}
+    assert BaseATSAdapter._required_unknown_questions_are_ready([question], [selected_file])
+    assert not BaseATSAdapter._required_unknown_questions_are_ready([question], [unselected_file])
 
 
 @pytest.mark.parametrize("adapter, host", [(GreenhouseAdapter(), "boards.greenhouse.io"), (LeverAdapter(), "jobs.lever.co")])
@@ -253,6 +276,48 @@ async def test_submit_defers_for_custom_question_widget(browser_instance):
     result = await GreenhouseAdapter().submit(page)
     assert result.status == "uncertain"
     assert "custom" in result.reason.lower()
+    await page.close()
+
+
+@pytest.mark.parametrize(
+    "widget",
+    [
+        '<div role="switch" aria-required="true" aria-label="Consent"></div>',
+        '<div role="listbox" aria-label="Country"></div>',
+        '<div role="slider" aria-label="Experience"></div>',
+        '<div role="spinbutton" aria-label="Years"></div>',
+        '<div aria-required="true" aria-label="Custom response"></div>',
+    ],
+)
+async def test_submit_defers_for_custom_aria_widgets_before_click(browser_instance, widget):
+    page = await browser_instance.new_page()
+    await page.route(
+        "https://boards.greenhouse.io/**",
+        lambda route: route.fulfill(
+            body=f'<form onsubmit="window.submitted = true; return false">{widget}<button type="submit">Apply</button></form>',
+            content_type="text/html",
+        ),
+    )
+    await page.goto("https://boards.greenhouse.io/jobs/custom-aria")
+    result = await GreenhouseAdapter().submit(page)
+    assert result.status == "uncertain"
+    assert await page.evaluate("window.submitted === true") is False
+    await page.close()
+
+
+async def test_submit_defers_for_required_multi_select_before_click(browser_instance):
+    page = await browser_instance.new_page()
+    await page.route(
+        "https://boards.greenhouse.io/**",
+        lambda route: route.fulfill(
+            body='<form onsubmit="window.submitted = true; return false"><select name="regions" multiple required><option selected value="west">West</option></select><button type="submit">Apply</button></form>',
+            content_type="text/html",
+        ),
+    )
+    await page.goto("https://boards.greenhouse.io/jobs/multi-select")
+    result = await GreenhouseAdapter().submit(page)
+    assert result.status == "uncertain"
+    assert await page.evaluate("window.submitted === true") is False
     await page.close()
 
 

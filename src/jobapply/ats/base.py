@@ -100,7 +100,9 @@ class BaseATSAdapter:
             raise AdapterDeferred("application form is missing or ambiguous")
 
         custom_controls = forms.locator(
-            "[role='combobox'], [role='radio'], [role='checkbox'], [contenteditable='true']"
+            "[role='combobox'], [role='radio'], [role='checkbox'], [role='switch'], "
+            "[role='listbox'], [role='slider'], [role='spinbutton'], [contenteditable='true'], "
+            "[aria-required='true']:not(input):not(select):not(textarea)"
         )
         if await custom_controls.count():
             raise AdapterDeferred("unsupported custom question control detected")
@@ -265,7 +267,7 @@ class BaseATSAdapter:
             return SubmissionResult("uncertain", "application form is missing or ambiguous")
         try:
             # Use the extraction path as the source of truth for unsupported widgets.
-            await self.read_questions(page)
+            questions = await self.read_questions(page)
         except AdapterDeferred as error:
             return SubmissionResult("uncertain", str(error))
         controls = await form.evaluate(
@@ -274,11 +276,13 @@ class BaseATSAdapter:
             ).map(element => {
               const tag = element.tagName.toLowerCase();
               const type = (element.type || '').toLowerCase();
-              const supported = tag === 'textarea' || tag === 'select' ||
-                (tag === 'input' && ['text', 'email', 'tel', 'url', 'search', 'checkbox', 'file'].includes(type));
+              const multiple = element.multiple === true;
+              const supported = !multiple && (tag === 'textarea' || tag === 'select' ||
+                (tag === 'input' && ['text', 'email', 'tel', 'url', 'search', 'checkbox', 'file'].includes(type)));
               const kind = type === 'checkbox' ? 'checkbox' :
                 (type === 'file' ? 'file' : (tag === 'select' ? 'select' : 'value'));
               return {
+                id: element.name || element.id || ('field-' + Array.from(form.elements).indexOf(element)),
                 required: true,
                 supported,
                 valid: element.validity ? element.validity.valid : false,
@@ -286,11 +290,15 @@ class BaseATSAdapter:
                 fileSelected: tag === 'input' && type === 'file' && element.files.length > 0,
                 value: typeof element.value === 'string' ? element.value.trim() : '',
                 checked: element.checked === true,
-                kind
+                kind,
+                multiple
               };
             })"""
         )
-        if not self._required_controls_are_ready(controls):
+        if (
+            not self._required_unknown_questions_are_ready(questions, controls)
+            or not self._required_controls_are_ready(controls)
+        ):
             return SubmissionResult(
                 "uncertain", "required controls are unsupported, invalid, unanswered, or missing a selected file"
             )
@@ -343,13 +351,31 @@ class BaseATSAdapter:
         return SubmissionResult("uncertain", "submission confirmation was not observed")
 
     @staticmethod
+    def _required_unknown_questions_are_ready(
+        questions: Sequence[FormQuestion], controls: Sequence[dict]
+    ) -> bool:
+        controls_by_id = {control["id"]: control for control in controls}
+        for question in questions:
+            if question.required and question.kind == "unknown":
+                control = controls_by_id.get(question.id)
+                if not control or not control["file"] or not control["fileSelected"]:
+                    return False
+        return True
+
+    @staticmethod
     def _required_controls_are_ready(controls: Sequence[dict]) -> bool:
         for control in controls:
+            if control.get("multiple", False):
+                return False
             if not control["supported"] or not control["valid"]:
                 return False
             if control["file"] and not control["fileSelected"]:
                 return False
             if control["kind"] == "checkbox" and not control["checked"]:
+                return False
+            if control["kind"] == "unknown" and not (
+                control["file"] and control["fileSelected"]
+            ):
                 return False
             if not control["file"] and control["kind"] != "checkbox" and not control["value"]:
                 return False
