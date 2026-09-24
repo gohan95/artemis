@@ -221,6 +221,29 @@ async def test_fill_rejects_ambiguous_matching_fields(browser_instance, other_co
     await page.close()
 
 
+async def test_fill_matches_one_id_among_multiple_aria_labelledby_references(browser_instance):
+    page = await browser_instance.new_page()
+    await page.route(
+        "https://boards.greenhouse.io/**",
+        lambda route: route.fulfill(
+            body=(
+                '<form><span id="hint">Preferred contact</span>'
+                '<span id="email-label">Email</span>'
+                '<input aria-labelledby="hint email-label"></form>'
+            ),
+            content_type="text/html",
+        ),
+    )
+    await page.goto("https://boards.greenhouse.io/jobs/multi-label")
+
+    await GreenhouseAdapter().fill(
+        page, [FieldAnswer("email", "ada@example.test", [], "profile")]
+    )
+
+    assert await page.locator("input").input_value() == "ada@example.test"
+    await page.close()
+
+
 @pytest.mark.parametrize("adapter, host", [(GreenhouseAdapter(), "boards.greenhouse.io"), (LeverAdapter(), "jobs.lever.co")])
 async def test_submit_is_explicit_and_unanswered_required_field_is_uncertain(adapter, host, browser_instance):
     page = await browser_instance.new_page()
