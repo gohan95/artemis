@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "job-application-agent"
+version = "0.1.0"
+description = "A personal CLI for processing curated job applications"
+requires-python = ">=3.12"
+dependencies = [
+    "typer",
+    "pydantic",
+    "pydantic-settings",
+    "pyyaml",
+    "pypdf",
+    "playwright",
+    "httpx",
+    "openai",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jobapply"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
