@@ -260,13 +260,16 @@ async def test_adapter_fill_does_not_submit(page, greenhouse_adapter):
 **Files:**
 - Create: `src/jobapply/workflow.py`
 - Modify: `src/jobapply/ats/base.py`
+- Modify: `src/jobapply/mapping.py`
 - Test: `tests/test_workflow.py`
 - Test: `tests/test_ats_adapters.py`
+- Test: `tests/test_mapping.py`
 
 **Interfaces:**
 - Produces: async `ApplicationWorkflow.run(urls: list[str], dry_run: bool = False, retry_uncertain: bool = False) -> list[ApplicationOutcome]`.
 - `ApplicationOutcome` includes normalized URL, status, employer/role when available, submitted timestamp, and reason.
 - The ATS adapter exposes `verify_resume_upload(page, question_id) -> bool`; the workflow may resolve a required resume question only after this confirms a file is selected.
+- Mapping exposes conservative `is_sensitive_question(question) -> bool` detection for sensitive/legal and protected-class question wording, in addition to exact sensitive aliases.
 
 - [ ] **Step 1: Write failing orchestration tests** for supported ATS success, unknown ATS, missing required profile value, Jev defer, generation failure, duplicate, dry run, confirmed submit, and uncertain submit outcome.
 
@@ -277,7 +280,7 @@ async def test_dry_run_never_calls_submit(workflow, adapter):
 ```
 
 - [ ] **Step 2: Run `uv run pytest tests/test_workflow.py -q`** and confirm failure.
-- [ ] **Step 3: Implement the state machine**: claim URL; open page; select ATS adapter; read questions and available job context; use deterministic mapper first; call Jev only for unresolved structured mapping; generate only for free-text questions when job context is available; apply policy; fill; verify required resume upload before resolving it; stop at dry-run or submit; confirm and persist result. If job context is unavailable for a question that needs it, defer. Persist `uncertain` if the page loses state after submit or confirmation cannot be established. Ensure exceptions update history and do not create an implicit retry path.
+- [ ] **Step 3: Implement the state machine**: claim URL; open page; select ATS adapter; read questions and available job context; use deterministic mapper first; detect sensitive/legal questions before any Jev or generation call and defer unless an exact explicit sensitive profile mapping resolved them; call Jev only for unresolved structured mapping; generate only for free-text questions when job context is available; apply policy; fill; verify required resume upload before resolving it; stop at dry-run or submit; confirm and persist result. If job context is unavailable for a question that needs it, defer. Persist `uncertain` if the page loses state after submit or confirmation cannot be established. Ensure exceptions update history and do not create an implicit retry path. Refresh outcomes for duplicate URLs within one batch after the first claimed URL is processed.
 - [ ] **Step 4: Run `uv run pytest tests/test_workflow.py -q`** with fake adapters and fake model clients; confirm each terminal status and duplicate handling pass.
 - [ ] **Step 5: Commit** as `feat: coordinate application workflow with safe deferrals`.
 
