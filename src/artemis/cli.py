@@ -5,11 +5,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import typer
+import yaml
 
 from artemis.answers_store import LearnedAnswers
 from artemis.ats import AshbyAdapter, GreenhouseAdapter, LeverAdapter
+from artemis.drafting import Draft, GroundedDrafter
 from artemis.forms import FormQuestion
 from artemis.history import ApplicationStatus, HistoryStore
+from artemis.llm import build_client
 from artemis.pipeline import ApplicationPipeline
 from artemis.profile import load_profile
 from artemis.settings import Settings
@@ -33,13 +36,18 @@ def _read_urls(path: Path) -> list[str]:
     return urls
 
 
-def _prompt_user(question: FormQuestion) -> str | None:
+def _prompt_user(question: FormQuestion, draft: Draft | None = None) -> str | None:
     prompt = f"[unresolved] {question.label}"
     if question.options:
         prompt += f" (options: {', '.join(question.options)})"
-    prompt += " [blank to skip]: "
+    if draft is not None:
+        typer.echo(f"  drafted from: {', '.join(draft.evidence_ids)}")
+    if question.required:
+        prompt += " [blank to defer this application]: "
+    else:
+        prompt += " [blank to skip]: "
     try:
-        value = typer.prompt(prompt, default="", show_default=False)
+        value = typer.prompt(prompt, default=draft.text if draft else "", show_default=bool(draft))
     except (EOFError, KeyboardInterrupt):
         return None
     return value or None
@@ -93,6 +101,12 @@ def apply(
     profile_dir: Path = typer.Option(
         None, help="Persistent browser profile directory."
     ),
+    draft: bool = typer.Option(
+        True,
+        "--draft/--no-draft",
+        help="Offer an LLM-drafted suggestion for unresolved free-text questions "
+        "when ARTEMIS_LLM_API_KEY is set. Has no effect otherwise.",
+    ),
 ):
     """Fill (and, with --submit, send) applications for each URL in URLS_FILE."""
 
@@ -101,6 +115,12 @@ def apply(
     history = HistoryStore(settings.history_path)
     learned = LearnedAnswers(settings.learned_answers_path)
     urls = _read_urls(urls_file)
+
+    draft_answer = None
+    if draft:
+        client = build_client(settings)
+        if client is not None:
+            draft_answer = GroundedDrafter(client, profile)
 
     resolved_headless = settings.browser_headless if headless is None else headless
     resolved_pacing = settings.pacing_enabled if pacing is None else pacing
@@ -145,6 +165,7 @@ def apply(
                 page_factory=page_factory_for(session),
                 ask_user=_prompt_user,
                 on_filled=on_filled,
+                draft_answer=draft_answer,
             )
             outcomes = await pipeline.run(urls, submit=submit)
 
@@ -196,6 +217,83 @@ def validate_profile():
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1)
     typer.echo(f"Profile is valid. Resume: {profile.resume_path}")
+
+
+@app.command()
+def setup(
+    resume: Path | None = typer.Option(None, help="Resume to auto-populate from."),
+    no_resume: bool = typer.Option(
+        False, "--no-resume", help="Skip resume parsing; enter everything by hand."
+    ),
+):
+    """Interactively create or edit the profile, optionally auto-populated from a resume."""
+
+    from artemis.profile_setup import (
+        extract_profile_fields,
+        merge_profile,
+        resume_text,
+        write_profile,
+    )
+
+    settings = Settings.from_env()
+    try:
+        existing = load_profile(settings.profile_path)
+    except FileNotFoundError:
+        existing = None
+    except ValueError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1)
+
+    resume_path = resume or (existing.resume_path if existing else None)
+    extracted: dict = {}
+    if not no_resume and resume_path is not None:
+        client = build_client(settings)
+        if client is None:
+            typer.echo("No ARTEMIS_LLM_API_KEY configured -- skipping resume auto-population.")
+        else:
+            try:
+                text = resume_text(resume_path)
+                extracted = extract_profile_fields(text, client)
+            except ValueError as error:
+                typer.echo(f"{error} -- continuing with manual entry.")
+            if not extracted:
+                typer.echo("Could not auto-populate from the resume -- continuing with manual entry.")
+
+    def ask(prompt_text: str, default: str | None) -> str | None:
+        value = typer.prompt(prompt_text, default=default or "", show_default=bool(default))
+        return value or None
+
+    def prior(field: str) -> str | None:
+        return extracted.get(field) or (getattr(existing, field, None) if existing else None)
+
+    answers: dict = {
+        "full_name": ask("Full name", prior("full_name")),
+        "email": ask("Email", prior("email")),
+        "phone": ask("Phone", prior("phone")),
+        "location": ask("Location", prior("location")),
+        "website": ask("Website", prior("website")),
+        "linkedin": ask("LinkedIn", prior("linkedin")),
+        "background": ask(
+            "Background (a sentence or two on what you're looking for)", prior("background")
+        ),
+    }
+    if resume_path is not None:
+        answers["resume_path"] = str(resume_path)
+
+    profile = merge_profile(existing, extracted, answers)
+
+    typer.echo("\nAssembled profile:")
+    typer.echo(yaml.safe_dump(profile.model_dump(mode="json", exclude_none=True), sort_keys=False))
+    typer.echo(
+        "(Work history and education came from the resume, if any; hand-edit "
+        f"{settings.profile_path} afterward for anything auto-population missed.)"
+    )
+    if not typer.confirm(f"Write this to {settings.profile_path}?", default=True):
+        typer.echo("Not written.")
+        raise typer.Exit(code=0)
+
+    write_profile(profile, settings.profile_path)
+    typer.echo(f"Wrote {settings.profile_path}.")
 
 
 if __name__ == "__main__":

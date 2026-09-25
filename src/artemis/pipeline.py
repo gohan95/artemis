@@ -14,15 +14,24 @@ from typing import Callable, Protocol, Sequence
 from artemis.answers import resolve_question
 from artemis.answers_store import LearnedAnswers
 from artemis.ats.base import ATSAdapter, AdapterDeferred
+from artemis.drafting import Draft, DraftAnswer
 from artemis.forms import FieldAnswer, FormQuestion
 from artemis.history import ApplicationStatus, HistoryStore
 from artemis.profile import Profile
 
 
 class AskUser(Protocol):
-    """Ask the user a question live, in whatever UI the caller provides."""
+    """Ask the user a question live, in whatever UI the caller provides.
 
-    def __call__(self, question: FormQuestion) -> str | None: ...
+    `draft` is an LLM-drafted suggestion to offer as an editable default, or
+    None when no drafter is configured or no grounded draft was produced.
+    """
+
+    def __call__(self, question: FormQuestion, draft: Draft | None = None) -> str | None: ...
+
+
+def _is_draftable(question: FormQuestion) -> bool:
+    return question.kind in {"text", "unknown"} and not question.options
 
 
 class OnFilled(Protocol):
@@ -66,6 +75,7 @@ class ApplicationPipeline:
         page_factory: Callable,
         ask_user: AskUser,
         on_filled: OnFilled = _no_pause,
+        draft_answer: DraftAnswer | None = None,
     ):
         self.profile = profile
         self.history = history
@@ -74,6 +84,7 @@ class ApplicationPipeline:
         self.page_factory = page_factory
         self.ask_user = ask_user
         self.on_filled = on_filled
+        self.draft_answer = draft_answer
 
     async def run(self, urls: list[str], *, submit: bool) -> list[ApplicationOutcome]:
         return [await self._process_url(url, submit=submit) for url in urls]
@@ -117,7 +128,10 @@ class ApplicationPipeline:
                 if question in sensitive_gaps:
                     still_unresolved.append(question)
                     continue
-                value = self.ask_user(question)
+                draft = None
+                if self.draft_answer is not None and _is_draftable(question):
+                    draft = self.draft_answer(question)
+                value = self.ask_user(question, draft)
                 if value is None or not value.strip():
                     still_unresolved.append(question)
                     continue

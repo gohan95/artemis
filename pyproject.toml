@@ -18,6 +18,11 @@ dependencies = [
     # layer). Its API surface is Playwright's, so no separate `playwright`
     # dependency is needed alongside it.
     "patchright>=1.63,<1.64",
+    # Used only by llm.py (Gemini client) and profile_setup.py (resume text
+    # extraction) -- both import lazily and degrade to manual entry if these
+    # are ever removed, so no other module should import them directly.
+    "google-genai",
+    "pypdf",
 ]
 
 [project.scripts]

@@ -11,7 +11,7 @@ from artemis.pacing import PacingProfile
 class Settings(BaseSettings):
     """Environment-backed paths and run behavior, all overridable for tests."""
 
-    model_config = SettingsConfigDict(env_prefix="ARTEMIS_")
+    model_config = SettingsConfigDict(env_prefix="ARTEMIS_", env_file=".env", extra="ignore")
 
     profile_path: Path = Path("data/profile.yaml")
     history_path: Path = Path("data/history.sqlite3")
@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     proxy_server: str | None = None
     proxy_username: str | None = None
     proxy_password: SecretStr | None = None
+
+    # Provider-neutral names: the model string carries the provider implicitly
+    # today (see llm.py). Add a provider setting only if a second
+    # implementation actually lands.
+    llm_api_key: SecretStr | None = None
+    llm_model: str = "gemini-3.8-flash"
+    llm_timeout_seconds: float = 20.0
 
     pacing_enabled: bool = True
     pacing_seed: int | None = None

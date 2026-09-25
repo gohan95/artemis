@@ -6,6 +6,7 @@ import pytest
 
 from artemis.answers_store import LearnedAnswers
 from artemis.ats.base import ATSAdapter, SubmissionResult
+from artemis.drafting import Draft
 from artemis.forms import FieldAnswer, FormQuestion
 from artemis.history import ApplicationStatus, HistoryStore
 from artemis.pipeline import ApplicationPipeline
@@ -59,7 +60,7 @@ def make_profile(**overrides) -> Profile:
 
 def make_pipeline(
     adapter, profile=None, learned=None, history=None, ask_user=None, tmp_path=None,
-    on_filled=None, pages=None,
+    on_filled=None, pages=None, draft_answer=None,
 ):
     def page_factory(url):
         page = FakePage()
@@ -70,13 +71,15 @@ def make_pipeline(
     kwargs = {}
     if on_filled is not None:
         kwargs["on_filled"] = on_filled
+    if draft_answer is not None:
+        kwargs["draft_answer"] = draft_answer
     return ApplicationPipeline(
         profile=profile or make_profile(),
         history=history or HistoryStore(tmp_path / "history.sqlite3"),
         learned=learned or LearnedAnswers(tmp_path / "learned.yaml"),
         adapters=[adapter],
         page_factory=page_factory,
-        ask_user=ask_user or (lambda q: None),
+        ask_user=ask_user or (lambda q, draft=None: None),
         **kwargs,
     )
 
@@ -122,7 +125,7 @@ async def test_submits_when_flag_set_and_fully_resolved(tmp_path: Path):
 async def test_unresolved_gap_prompts_user_and_fills_answer(tmp_path: Path):
     questions = [FormQuestion(id="q1", label="Desired start date", required=False, kind="text")]
     adapter = FakeAdapter(questions)
-    pipeline = make_pipeline(adapter, ask_user=lambda q: "Immediately", tmp_path=tmp_path)
+    pipeline = make_pipeline(adapter, ask_user=lambda q, draft=None: "Immediately", tmp_path=tmp_path)
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
 
@@ -134,7 +137,7 @@ async def test_unresolved_gap_prompts_user_and_fills_answer(tmp_path: Path):
 async def test_user_declines_to_answer_defers(tmp_path: Path):
     questions = [FormQuestion(id="q1", label="Why us?", required=True, kind="text")]
     adapter = FakeAdapter(questions)
-    pipeline = make_pipeline(adapter, ask_user=lambda q: None, tmp_path=tmp_path)
+    pipeline = make_pipeline(adapter, ask_user=lambda q, draft=None: None, tmp_path=tmp_path)
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=True)
 
@@ -154,7 +157,7 @@ async def test_sensitive_gap_is_never_prompted(tmp_path: Path):
     adapter = FakeAdapter(questions)
     prompted: list[str] = []
 
-    def ask(question):
+    def ask(question, draft=None):
         prompted.append(question.id)
         return "Yes"
 
@@ -187,6 +190,94 @@ async def test_sensitive_gap_blocks_even_when_page_marks_it_not_required(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_draft_is_offered_and_accepted_via_ask_user(tmp_path: Path):
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    draft = Draft(text="Drafted answer.", evidence_ids=("fact-1",))
+    seen_drafts = []
+
+    def ask(question, draft=None):
+        seen_drafts.append(draft)
+        return draft.text if draft else None
+
+    pipeline = make_pipeline(
+        adapter, ask_user=ask, draft_answer=lambda q: draft, tmp_path=tmp_path
+    )
+
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert outcome.status == ApplicationStatus.filled
+    assert seen_drafts == [draft]
+    assert adapter.filled[0].value == "Drafted answer."
+
+
+@pytest.mark.asyncio
+async def test_draft_can_be_declined_leaving_field_unresolved(tmp_path: Path):
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    draft = Draft(text="Drafted answer.", evidence_ids=("fact-1",))
+
+    pipeline = make_pipeline(
+        adapter, ask_user=lambda q, draft=None: None, draft_answer=lambda q: draft, tmp_path=tmp_path
+    )
+
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert outcome.status == ApplicationStatus.filled
+    assert "q1" in outcome.unresolved_fields
+
+
+@pytest.mark.asyncio
+async def test_grounded_drafter_llm_failure_still_completes_run_via_blank_prompt(tmp_path: Path):
+    """GroundedDrafter is the guarantee that a drafting failure never fails a
+    run -- it swallows LLMError and returns None (see test_drafting.py). This
+    confirms that None flows through the pipeline exactly like "no drafter"."""
+    from artemis.drafting import GroundedDrafter
+    from artemis.llm import LLMError
+
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+
+    class _AlwaysFailsClient:
+        def complete_json(self, prompt, schema):
+            raise LLMError("boom")
+
+    profile = make_profile()
+    drafter = GroundedDrafter(_AlwaysFailsClient(), profile)
+    pipeline = make_pipeline(
+        adapter, profile=profile, ask_user=lambda q, draft=None: None,
+        draft_answer=drafter, tmp_path=tmp_path,
+    )
+
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert outcome.status == ApplicationStatus.filled
+    assert "q1" in outcome.unresolved_fields
+
+
+@pytest.mark.asyncio
+async def test_sensitive_question_is_never_passed_to_the_drafter(tmp_path: Path):
+    questions = [
+        FormQuestion(
+            id="work-auth", label="Are you authorized to work in the United States?",
+            required=True, kind="select", options=["Yes", "No"],
+        )
+    ]
+    adapter = FakeAdapter(questions)
+    drafted: list[str] = []
+
+    def draft_answer(question):
+        drafted.append(question.id)
+        return None
+
+    pipeline = make_pipeline(adapter, draft_answer=draft_answer, tmp_path=tmp_path)
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=True)
+
+    assert drafted == []
+    assert outcome.status == ApplicationStatus.deferred
+
+
+@pytest.mark.asyncio
 async def test_unresolved_optional_field_does_not_block_the_run(tmp_path: Path):
     """Regression test: an unresolved OPTIONAL field must not defer the whole
     application. Only a required (or sensitive) gap may do that."""
@@ -195,7 +286,7 @@ async def test_unresolved_optional_field_does_not_block_the_run(tmp_path: Path):
         FormQuestion(id="cover_letter", label="Cover Letter", required=False, kind="text"),
     ]
     adapter = FakeAdapter(questions)
-    pipeline = make_pipeline(adapter, ask_user=lambda q: None, tmp_path=tmp_path)
+    pipeline = make_pipeline(adapter, ask_user=lambda q, draft=None: None, tmp_path=tmp_path)
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=True)
 
@@ -212,7 +303,7 @@ async def test_unresolved_optional_field_still_lands_on_filled_without_submit_fl
         FormQuestion(id="cover_letter", label="Cover Letter", required=False, kind="text"),
     ]
     adapter = FakeAdapter(questions)
-    pipeline = make_pipeline(adapter, ask_user=lambda q: None, tmp_path=tmp_path)
+    pipeline = make_pipeline(adapter, ask_user=lambda q, draft=None: None, tmp_path=tmp_path)
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
 

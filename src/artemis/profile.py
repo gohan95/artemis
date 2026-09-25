@@ -13,6 +13,12 @@ class ProfileEntry(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str = Field(min_length=1)
+    title: str | None = None
+    organization: str | None = None
+    start: str | None = None
+    end: str | None = None
+    # 1-3 sentences: the text an LLM drafter cites as grounding for this entry.
+    summary: str | None = None
 
 
 class Profile(BaseModel):
@@ -31,6 +37,9 @@ class Profile(BaseModel):
     education: list[ProfileEntry] = Field(default_factory=list)
     skills: list[Any] | dict[str, Any] = Field(default_factory=list)
     preferences: dict[str, Any] = Field(default_factory=dict)
+    # Free-text context for drafting that isn't a job or a degree (e.g. what
+    # kind of role/company you're looking for, in your own words).
+    background: str | None = None
     # Sensitive or legally significant answers (work authorization, sponsorship,
     # disability, veteran status, criminal history, ...). Only an explicit key here
     # may answer a sensitive question; a missing key must never be inferred.
