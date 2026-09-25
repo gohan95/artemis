@@ -291,10 +291,22 @@ class BaseATSAdapter:
 
         Returns a label string to use in place of `_read_native_control`'s
         own label detection, or None to fall back to that default (native
-        `<label>`/ARIA/legend association). Ashby overrides this because it
-        associates a label with a control purely by DOM position, not markup.
+        `<label>`/ARIA/legend association). Ashby overrides this because some
+        of its controls (e.g. a Yes/No widget's checkbox) have a `name` but no
+        `id`, so `label[for]` never matches them by `id`.
         """
         return None
+
+    async def _fill_hidden_checkbox(self, control, checked: bool) -> bool:
+        """Hook for a platform whose checkbox is a hidden proxy for other UI.
+
+        Returns True if it handled the fill itself, False to fall back to the
+        default `set_checked` on the control. Ashby overrides this because its
+        Yes/No widget's checkbox is not the clickable element -- a sibling
+        `<button data-option="yes|no">` is -- so `set_checked` times out
+        waiting for a checkbox that is never meant to be visible.
+        """
+        return False
 
     async def _read_native_control(self, control) -> FormQuestion:
         details = await control.evaluate(
@@ -474,8 +486,9 @@ class BaseATSAdapter:
             await self._fill_combobox(control, answer)
         elif input_type == "checkbox":
             checked = answer.value.strip().casefold() in {"1", "true", "yes", "on", "checked"}
-            await self.pacer.before_click(control)
-            await control.set_checked(checked)
+            if not await self._fill_hidden_checkbox(control, checked):
+                await self.pacer.before_click(control)
+                await control.set_checked(checked)
         elif tag == "textarea" or (tag == "input" and input_type in {"text", "email", "tel", "url", "search"}):
             await self.pacer.before_click(control)
             await self.pacer.type_text(control, answer.value)

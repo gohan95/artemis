@@ -215,6 +215,68 @@ async def test_ashby_reads_real_fields_without_form_wrapper(browser):
 
 
 @pytest.mark.asyncio
+async def test_ashby_reads_yesno_widget_label_from_field_entry_wrapper(browser):
+    """Regression guard for a real bug: Ashby's Yes/No question widget's
+    underlying checkbox has a `name` but no `id`, so `label[for]` never
+    matches it by `id` and the base adapter's native label detection falls
+    back to the raw UUID `name`. This markup is a minimal hand-built snippet
+    mirroring the real widget structure confirmed against a live posting
+    (see AshbyAdapter._label_for_control's docstring), not the full real
+    fixture -- the checked-in ashby fixtures don't include a Yes/No field."""
+    context = await browser.new_context()
+    html = """
+    <div class="_fieldEntry_1e3gg_28 ashby-application-form-field-entry"
+         data-field-path="ca6c86bc-7c4c-49cd-a40e-449655242c25">
+      <label class="_heading_f7cvd_52 _required_f7cvd_91 _label_1e3gg_42 ashby-application-form-question-title"
+             for="ca6c86bc-7c4c-49cd-a40e-449655242c25">
+        Can you work from our office 4 days a week?
+      </label>
+      <div class="_container_1svni_28 _yesno_1e3gg_148 ashby-application-form-input-yesno">
+        <button aria-pressed="false" data-option="yes">Yes</button>
+        <button aria-pressed="false" data-option="no">No</button>
+        <input type="checkbox" tabindex="-1" style="position:absolute;width:1px;height:1px;opacity:0;"
+               name="ca6c86bc-7c4c-49cd-a40e-449655242c25">
+      </div>
+    </div>
+    """
+    url = "https://jobs.ashbyhq.com/acme/jobs/1"
+
+    async def handle(route):
+        if route.request.url == url:
+            await route.fulfill(status=200, content_type="text/html", body=html)
+        else:
+            await route.abort()
+
+    await context.route("**/*", handle)
+    page = await context.new_page()
+    await page.goto(url, wait_until="domcontentloaded")
+    adapter = AshbyAdapter()
+
+    questions = await adapter.read_questions(page)
+
+    assert len(questions) == 1
+    assert questions[0].label == "Can you work from our office 4 days a week?"
+
+    # The checkbox is invisible (Ashby's real widget hides it this way); the
+    # actual clickable UI is the sibling Yes/No button. Regression guard for a
+    # real bug: filling this used to time out trying to click the invisible
+    # checkbox directly. The listener is attached via page.evaluate rather
+    # than an inline <script> tag -- fulfilled responses in this browser
+    # don't execute inline scripts, so an inline handler would never fire
+    # regardless of whether the click landed correctly.
+    await page.evaluate(
+        "document.querySelector('[data-option=yes]')"
+        ".addEventListener('click', () => { window.__clicked = 'yes'; })"
+    )
+    await adapter.fill(
+        page, [FieldAnswer("ca6c86bc-7c4c-49cd-a40e-449655242c25", "yes", "learned")]
+    )
+    assert await page.evaluate("window.__clicked") == "yes"
+
+    await context.close()
+
+
+@pytest.mark.asyncio
 async def test_ashby_fills_real_fields_including_hidden_file_input_without_submitting(browser):
     context = await browser.new_context()
     page = await _load_fixture(context, "jobs.ashbyhq.com", "ashby_no_captcha.html", _ASHBY_PATH)
