@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from artemis.profile import Profile, load_profile
+from artemis.profile import Preferences, Profile, load_profile
 from artemis.profile_setup import merge_profile, write_profile
 
 
@@ -77,6 +77,21 @@ def test_merge_profile_background_and_goals_do_not_collide():
 
     assert merged.background == "Senior engineer with 8 years in distributed systems."
     assert merged.goals == "Looking for backend roles."
+
+
+def test_merge_profile_preferences_are_shallow_merged_not_replaced():
+    """answers['preferences'] carries only the sub-fields the person answered
+    this run -- replacing the whole dict, as a plain `merged[key] = value`
+    would, silently drops every previously-set preference they didn't
+    re-type."""
+
+    existing = make_profile(preferences=Preferences(salary_expectation="150-170k", notice_period="2 weeks"))
+    answers = {"preferences": {"notice_period": "1 month"}}
+
+    merged = merge_profile(existing, {}, answers)
+
+    assert merged.preferences.salary_expectation == "150-170k"
+    assert merged.preferences.notice_period == "1 month"
 
 
 def test_write_profile_round_trips_through_load_profile(tmp_path: Path):

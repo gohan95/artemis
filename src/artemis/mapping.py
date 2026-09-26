@@ -30,6 +30,33 @@ PROFILE_ALIASES: dict[str, str] = {
     "linkedin profile": "linkedin",
 }
 
+# Maps a question label to the profile.preferences field that may answer it.
+# Same exact-match discipline as PROFILE_ALIASES. A preference is an explicit
+# value the user typed once during setup, but unlike DECLARED_ALIASES, an
+# unset preference falls through to a normal live prompt rather than
+# deferring -- see answers.py.
+PREFERENCE_ALIASES: dict[str, str] = {
+    "what are your salary expectations?": "salary_expectation",
+    "desired salary": "salary_expectation",
+    "expected compensation": "salary_expectation",
+    "desired start date": "desired_start_date",
+    "when can you start?": "desired_start_date",
+    "earliest start date": "desired_start_date",
+    "what is your notice period?": "notice_period",
+    "notice period": "notice_period",
+    "are you willing to relocate?": "willing_to_relocate",
+    "willing to relocate": "willing_to_relocate",
+    "what is your remote work preference?": "remote_preference",
+    "how many days a week can you work from our office?": "onsite_days_per_week",
+    "how did you hear about this position?": "how_heard",
+    "how did you hear about us?": "how_heard",
+    "how did you find out about this job?": "how_heard",
+    "who referred you?": "referral_source",
+    "referral name": "referral_source",
+    "years of experience": "years_experience",
+    "how many years of experience do you have?": "years_experience",
+}
+
 DECLARED_ALIASES: dict[str, str] = {
     "are you authorized to work in the united states?": "work_authorization",
     "are you legally authorized to work in the united states?": "work_authorization",

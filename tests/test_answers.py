@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from artemis.answers import resolve_question
+from artemis.answers import _preference_value, resolve_question
 from artemis.answers_store import LearnedAnswers
 from artemis.forms import FormQuestion
-from artemis.mapping import is_protected_question
-from artemis.profile import Profile
+from artemis.mapping import PREFERENCE_ALIASES, is_protected_question
+from artemis.profile import Preferences, Profile
 
 
 def make_profile(**overrides) -> Profile:
@@ -155,3 +155,82 @@ def test_canonical_type_match_survives_rephrasing(learned):
 
     assert resolve_question(with_mark, profile, learned).answer.value == "Because the mission resonates with me."
     assert resolve_question(rephrased, profile, learned).answer.value == "Because the mission resonates with me."
+
+
+def test_no_preference_alias_is_a_protected_question():
+    """Structural guard, matching the canonical-type one in test_mapping.py:
+    a preference and a protected question must never overlap. A protected
+    question must never be answerable merely by having typed a preference."""
+
+    for label in PREFERENCE_ALIASES:
+        assert is_protected_question(label) is False, f"{label!r} is flagged protected"
+
+
+def test_preference_resolves_a_scalar_string_field(learned):
+    profile = make_profile(preferences=Preferences(salary_expectation="150-170k"))
+    question = FormQuestion(id="q1", label="What are your salary expectations?", required=False, kind="text")
+
+    resolution = resolve_question(question, profile, learned)
+
+    assert resolution.answer.value == "150-170k"
+    assert resolution.answer.method == "profile"
+
+
+def test_unset_preference_falls_through_to_a_live_prompt_not_a_defer(learned):
+    profile = make_profile()
+    question = FormQuestion(id="q1", label="Desired start date", required=False, kind="text")
+
+    resolution = resolve_question(question, profile, learned)
+
+    assert resolution.answer is None
+    assert resolution.undeclared is False
+
+
+def test_bool_preference_matches_a_yes_no_select_option(learned):
+    profile = make_profile(preferences=Preferences(willing_to_relocate=True))
+    question = FormQuestion(
+        id="q1", label="Are you willing to relocate?", required=False, kind="select", options=["Yes", "No"],
+    )
+
+    resolution = resolve_question(question, profile, learned)
+
+    assert resolution.answer.value == "Yes"
+
+
+def test_bool_preference_with_no_matching_select_option_is_unresolved(learned):
+    profile = make_profile(preferences=Preferences(willing_to_relocate=True))
+    question = FormQuestion(
+        id="q1", label="Are you willing to relocate?", required=False,
+        kind="select", options=["Definitely", "Not at this time"],
+    )
+
+    resolution = resolve_question(question, profile, learned)
+
+    assert resolution.answer is None
+
+
+def test_bool_preference_resolves_as_yes_no_text_for_a_free_text_question(learned):
+    profile = make_profile(preferences=Preferences(willing_to_relocate=False))
+    question = FormQuestion(id="q1", label="Willing to relocate", required=False, kind="text")
+
+    resolution = resolve_question(question, profile, learned)
+
+    assert resolution.answer.value == "No"
+
+
+def test_list_preference_joins_for_a_text_field():
+    """locations/employment_types have no alias yet (see mapping.py's
+    PREFERENCE_ALIASES) so this exercises the formatting helper directly
+    rather than through resolve_question."""
+
+    profile = make_profile(preferences=Preferences(locations=["Remote", "Portland, OR"]))
+    question = FormQuestion(id="q1", label="Preferred locations", required=False, kind="text")
+
+    assert _preference_value(question, profile.preferences, "locations") == "Remote, Portland, OR"
+
+
+def test_list_preference_is_unresolved_for_a_select():
+    profile = make_profile(preferences=Preferences(employment_types=["Full-time"]))
+    question = FormQuestion(id="q1", label="Employment Type", required=False, kind="select", options=["Full-time"])
+
+    assert _preference_value(question, profile.preferences, "employment_types") is None

@@ -32,12 +32,21 @@ skills:
   - Python
   - Data visualization
 
+# Recurring logistics questions the resume doesn't answer -- set once here,
+# reused across applications, filled in only when a form actually asks. An
+# unset field here just falls through to a normal prompt, unlike `declared`
+# below.
 preferences:
   locations:
     - Remote
     - Portland, OR
   employment_types:
     - Full-time
+  salary_expectation: "150-170k"
+  desired_start_date: "2 weeks notice"
+  notice_period: "2 weeks"
+  willing_to_relocate: false
+  remote_preference: remote
 
 # Protected/legally-significant facts (work authorization, sponsorship, disability,
 # veteran status, criminal history, demographics, ...). Once declared here, a value

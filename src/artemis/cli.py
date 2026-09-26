@@ -282,6 +282,10 @@ def setup(
     def prior(field: str) -> str | None:
         return extracted.get(field) or (getattr(existing, field, None) if existing else None)
 
+    def prior_preference(field: str) -> str | None:
+        value = getattr(existing.preferences, field, None) if existing else None
+        return str(value) if value not in (None, "") else None
+
     answers: dict = {
         "full_name": ask("Full name", prior("full_name")),
         "email": ask("Email", prior("email")),
@@ -297,6 +301,45 @@ def setup(
     }
     if resume_path is not None:
         answers["resume_path"] = str(resume_path)
+
+    def ask_yes_no(prompt_text: str, prior_value: bool | None) -> bool | None:
+        """A blank answer means "leave unanswered", not "no" -- unlike
+        typer.confirm, which always resolves to True/False and can't
+        represent skipping. willing_to_relocate must keep None distinguishable
+        from an explicit False (see Preferences' field comment)."""
+
+        default = "yes" if prior_value else ("no" if prior_value is False else "")
+        value = typer.prompt(f"{prompt_text} (yes/no, Enter to skip)", default=default, show_default=bool(default))
+        normalized = value.strip().casefold()
+        if normalized in ("y", "yes"):
+            return True
+        if normalized in ("n", "no"):
+            return False
+        return None
+
+    typer.echo("\nPreferences (press Enter to skip any):")
+    preference_answers: dict = {
+        "salary_expectation": ask("Salary expectations", prior_preference("salary_expectation")),
+        "desired_start_date": ask("Desired start date", prior_preference("desired_start_date")),
+        "notice_period": ask("Notice period", prior_preference("notice_period")),
+        "onsite_days_per_week": ask(
+            "Days per week you can work from an office (leave blank if not applicable)",
+            prior_preference("onsite_days_per_week"),
+        ),
+        "referral_source": ask("Who referred you, if anyone", prior_preference("referral_source")),
+        "how_heard": ask("How you typically hear about roles", prior_preference("how_heard")),
+        "years_experience": ask("Years of experience", prior_preference("years_experience")),
+        "remote_preference": ask(
+            "Remote work preference (remote/hybrid/onsite/flexible)", prior_preference("remote_preference")
+        ),
+    }
+    willing_to_relocate = ask_yes_no(
+        "Willing to relocate?",
+        existing.preferences.willing_to_relocate if existing else None,
+    )
+    if willing_to_relocate is not None:
+        preference_answers["willing_to_relocate"] = willing_to_relocate
+    answers["preferences"] = {key: value for key, value in preference_answers.items() if value not in (None, "")}
 
     profile = merge_profile(existing, extracted, answers)
 

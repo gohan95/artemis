@@ -137,7 +137,13 @@ def merge_profile(
             merged[key] = value
 
     for key, value in answers.items():
-        if value not in (None, ""):
+        if key == "preferences" and isinstance(value, dict):
+            # A shallow merge, not a replace: `value` here is only the
+            # sub-fields the person answered this run, so replacing the whole
+            # dict would silently drop every previously-set preference they
+            # didn't re-type.
+            merged["preferences"] = {**merged.get("preferences", {}), **value}
+        elif value not in (None, ""):
             merged[key] = value
 
     return Profile.model_validate(merged)

@@ -1,7 +1,7 @@
 """Load the hand-maintained profile: the source of truth for personal facts."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -21,6 +21,34 @@ class ProfileEntry(BaseModel):
     summary: str | None = None
 
 
+class Preferences(BaseModel):
+    """Explicit, typed, never-inferred answers to recurring application
+    questions that aren't on the resume and aren't protected (see `declared`
+    on `Profile`) -- what you'd tell every application about your logistics
+    and terms, in your own words, once."""
+
+    model_config = ConfigDict(extra="allow")
+
+    # str, not int/date: forms take free text ("negotiable", "150-170k",
+    # "after March") and typing these numerically forces a lossy conversion
+    # exactly where precision matters.
+    salary_expectation: str | None = None
+    salary_currency: str | None = None
+    desired_start_date: str | None = None
+    notice_period: str | None = None
+    # None must stay distinguishable from False: unset falls through to a
+    # live prompt, False is an explicit "no".
+    willing_to_relocate: bool | None = None
+    relocation_notes: str | None = None
+    remote_preference: Literal["remote", "hybrid", "onsite", "flexible"] | None = None
+    onsite_days_per_week: int | None = None
+    locations: list[str] = Field(default_factory=list)
+    employment_types: list[str] = Field(default_factory=list)
+    referral_source: str | None = None
+    how_heard: str | None = None
+    years_experience: str | None = None
+
+
 class Profile(BaseModel):
     """Structured personal facts and the configured resume file."""
 
@@ -36,7 +64,7 @@ class Profile(BaseModel):
     work_history: list[ProfileEntry] = Field(default_factory=list)
     education: list[ProfileEntry] = Field(default_factory=list)
     skills: list[Any] | dict[str, Any] = Field(default_factory=list)
-    preferences: dict[str, Any] = Field(default_factory=dict)
+    preferences: Preferences = Field(default_factory=Preferences)
     # Free-text overview/summary, usually lifted from the resume itself
     # (backward-looking: who you are professionally).
     background: str | None = None

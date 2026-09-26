@@ -66,6 +66,13 @@ regexes, since over-triggering there just causes an extra defer.
 `LearnedAnswers` caches what the user typed in response to a live prompt for an unmapped question —
 it's a cache of prior answers, not a generated answer bank.
 
+`profile.preferences` (`Preferences` in `profile.py`) is typed and explicit — salary expectation,
+start date, notice period, relocation, remote preference, referral source, and similar recurring
+logistics questions the resume doesn't answer. Set once during `artemis setup`, resolved through
+`PREFERENCE_ALIASES`/`_preference_value` in `answers.py`. Unlike a declared value, an unset
+preference is not a reason to defer — it falls through to a normal live prompt, exactly like a
+contact field the profile doesn't have.
+
 ### History (`history.py`)
 
 SQLite-backed. `submitted` is a terminal, never-re-claimable status. `uncertain` (a submit was clicked
