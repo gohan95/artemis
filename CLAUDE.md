@@ -39,7 +39,7 @@ structured profile fields from a resume during setup — see "Product boundary" 
 1. `HistoryStore.claim(url)` — atomic SQLite claim, dedups on canonicalized URL.
 2. Pick the first `ATSAdapter` whose `supports_url` matches (exact host allowlist).
 3. `wait_until_ready` → `read_questions` → `answers.resolve_question` per field: resume alias → exact
-   profile alias → sensitive-question check → learned-answers store → ask the user live and cache it.
+   profile alias → protected-question check → learned-answers store → ask the user live and cache it.
 4. `adapter.fill` (never submits) → if `--submit`, `adapter.submit` → `confirm_submission`.
 5. `HistoryStore.finish` records the status; `OnFilled` gets one look at the page before it closes.
 
@@ -50,14 +50,17 @@ are just per-vendor class-attribute overrides (`allowed_hosts`, `form_selector`,
 Whenever a value can't be determined with confidence, the whole application defers rather than
 guessing (`AdapterDeferred`). This shows up throughout: ambiguous field matches, multiple submit
 buttons, CAPTCHAs, login walls, and unsupported controls all defer instead of best-effort guessing.
-Sensitive/legally-significant questions (work authorization, sponsorship, disability, veteran status,
-criminal history — `mapping.py`) are answered only from an explicit `profile.sensitive_answers` value,
-never inferred and never routed through the live-prompt/learned path. `--submit` defaults off.
+Protected questions (work authorization, sponsorship, disability, veteran status, criminal history,
+demographics — `mapping.py`) are answered only from an explicit `profile.declared` value the person
+wrote by hand. What's protected is *derivation*, not reuse: a declared value is never inferred from
+another field, never matched across categories, and never routed through the live-prompt/learned
+path — but once declared it fills and submits automatically like any other profile field, with no
+extra per-application review. An undeclared protected question always defers. `--submit` defaults off.
 
 ### Answer resolution (`answers.py`, `mapping.py`, `answers_store.py`)
 
 `mapping.py`'s alias tables are exact-match only — add an alias only after observing that exact
-phrasing on a real posting. Sensitive-question detection is the opposite: deliberately over-inclusive
+phrasing on a real posting. Protected-question detection is the opposite: deliberately over-inclusive
 regexes, since over-triggering there just causes an extra defer.
 
 `LearnedAnswers` caches what the user typed in response to a live prompt for an unmapped question —
@@ -98,7 +101,7 @@ loads it automatically.
 default the person can accept, edit, or clear — never applied without being seen. A draft
 must be evidence-grounded: the model must cite specific profile facts by id
 (`drafting.profile_facts`), and `validate_draft` discards any draft citing an id that
-doesn't exist or leaving `answer` empty. Sensitive questions are never drafted — the
+doesn't exist or leaving `answer` empty. Protected questions are never drafted — the
 existing fail-closed exclusion in `pipeline.py`'s per-question loop sits upstream of the
 drafting call, not the other way around. Any failure (no API key, network error, quota,
 malformed response, no grounding) silently falls through to the plain blank prompt; a
@@ -112,9 +115,10 @@ manual entry.
 ## Product boundary
 
 Job discovery, ranking, a GUI, and arbitrary (non-allowlisted) websites are out of scope.
-Sensitive/legally-significant profile facts are never inferred — no exception, including from
-an LLM. The LLM's role is deliberately narrow: it drafts free-text answers and extracts resume
-fields for a human to review, and never sees, drafts, or infers an answer to a sensitive
-question; never auto-submits; and never fills a field the person hasn't seen. Don't expand host
-support, or widen what the LLM is allowed to touch, without confirming the boundary is meant
-to change.
+Protected profile facts (`profile.declared`) are never *derived* — no exception, including from
+an LLM — though once declared by hand they fill and submit automatically like any other profile
+field. The LLM's role is deliberately narrow: it drafts free-text answers and extracts resume
+fields for a human to review, and never sees, drafts, or infers an answer to a protected
+question; never auto-submits; and never submits a novel piece of generated text the person
+hasn't seen. Don't expand host support, or widen what the LLM is allowed to touch, without
+confirming the boundary is meant to change.

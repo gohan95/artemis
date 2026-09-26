@@ -1,4 +1,4 @@
-"""Tests for question resolution: aliasing, sensitive fail-closed behavior, learning."""
+"""Tests for question resolution: aliasing, protected-question fail-closed behavior, learning."""
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pytest
 from artemis.answers import resolve_question
 from artemis.answers_store import LearnedAnswers
 from artemis.forms import FormQuestion
-from artemis.mapping import is_sensitive_question
+from artemis.mapping import is_protected_question
 from artemis.profile import Profile
 
 
@@ -34,27 +34,27 @@ def learned(tmp_path: Path) -> LearnedAnswers:
         "Do you require visa sponsorship now or in the future?",
     ],
 )
-def test_is_sensitive_question_detects_known_wording(label: str):
-    assert is_sensitive_question(label) is True
+def test_is_protected_question_detects_known_wording(label: str):
+    assert is_protected_question(label) is True
 
 
-def test_is_sensitive_question_false_for_ordinary_question():
-    assert is_sensitive_question("What is your email address?") is False
+def test_is_protected_question_false_for_ordinary_question():
+    assert is_protected_question("What is your email address?") is False
 
 
-def test_sensitive_question_without_explicit_value_is_never_answered(learned):
-    profile = make_profile(sensitive_answers={})
+def test_protected_question_without_declared_value_is_never_answered(learned):
+    profile = make_profile(declared={})
     question = FormQuestion(
         id="work-auth", label="Are you authorized to work in the United States?",
         required=True, kind="select", options=["Yes", "No"],
     )
     resolution = resolve_question(question, profile, learned)
     assert resolution.answer is None
-    assert resolution.sensitive_unanswered is True
+    assert resolution.undeclared is True
 
 
-def test_sensitive_question_with_explicit_value_is_answered(learned):
-    profile = make_profile(sensitive_answers={"work_authorization": "Yes"})
+def test_protected_question_with_declared_value_is_answered(learned):
+    profile = make_profile(declared={"work_authorization": "Yes"})
     question = FormQuestion(
         id="work-auth", label="Are you authorized to work in the United States?",
         required=True, kind="select", options=["Yes", "No"],
@@ -65,13 +65,39 @@ def test_sensitive_question_with_explicit_value_is_answered(learned):
     assert resolution.answer.method == "profile"
 
 
-def test_sensitive_question_never_reads_learned_answers(learned):
+def test_protected_question_never_reads_learned_answers(learned):
     learned.set("Are you a veteran?", "No")
-    profile = make_profile(sensitive_answers={})
+    profile = make_profile(declared={})
     question = FormQuestion(id="vet", label="Are you a veteran?", required=True, kind="select", options=["Yes", "No"])
     resolution = resolve_question(question, profile, learned)
     assert resolution.answer is None
-    assert resolution.sensitive_unanswered is True
+    assert resolution.undeclared is True
+
+
+def test_declared_value_cannot_answer_a_different_category(learned):
+    """A veteran-status value must never answer a disability question -- no
+    cross-category derivation, even when a select's options happen to match."""
+
+    profile = make_profile(declared={"veteran_status": "No"})
+    question = FormQuestion(
+        id="disability", label="Do you have a disability?",
+        required=True, kind="select", options=["Yes", "No"],
+    )
+    resolution = resolve_question(question, profile, learned)
+    assert resolution.answer is None
+    assert resolution.undeclared is True
+
+
+def test_declared_demographic_value_is_answered(learned):
+    profile = make_profile(declared={"gender": "Prefer not to say"})
+    question = FormQuestion(
+        id="gender", label="What is your gender identity?",
+        required=False, kind="select", options=["Male", "Female", "Prefer not to say"],
+    )
+    resolution = resolve_question(question, profile, learned)
+    assert resolution.answer is not None
+    assert resolution.answer.value == "Prefer not to say"
+    assert resolution.answer.method == "profile"
 
 
 def test_alias_maps_known_contact_field(learned):
@@ -87,7 +113,7 @@ def test_alias_field_with_no_profile_value_is_unresolved(learned):
     question = FormQuestion(id="q1", label="Website", required=False, kind="text")
     resolution = resolve_question(question, profile, learned)
     assert resolution.answer is None
-    assert resolution.sensitive_unanswered is False
+    assert resolution.undeclared is False
 
 
 def test_unknown_label_is_unresolved(learned):
@@ -113,3 +139,18 @@ def test_resume_alias_resolves_to_resume_path(learned):
     question = FormQuestion(id="resume", label="Resume", required=True, kind="file")
     resolution = resolve_question(question, profile, learned)
     assert resolution.answer.value == str(profile.resume_path)
+
+
+def test_trailing_punctuation_is_currently_a_cache_miss(learned):
+    """Known-bad characterization: normalize_label preserves punctuation, so a
+    label learned with a trailing '?' does not resolve without it. Pinned here
+    so a future canonical-matching layer flips this with a visible diff."""
+
+    profile = make_profile()
+    learned.set("Why do you want to work here?", "Because the mission resonates with me.")
+
+    with_mark = FormQuestion(id="q1", label="Why do you want to work here?", required=False, kind="text")
+    without_mark = FormQuestion(id="q2", label="Why do you want to work here", required=False, kind="text")
+
+    assert resolve_question(with_mark, profile, learned).answer is not None
+    assert resolve_question(without_mark, profile, learned).answer is None

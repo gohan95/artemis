@@ -134,6 +134,60 @@ async def test_unresolved_gap_prompts_user_and_fills_answer(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_answered_gap_is_learned_and_readable_from_a_new_store_instance(tmp_path: Path):
+    """Pins the pipeline's persist-on-answer behavior: a second, independent
+    LearnedAnswers instance on the same path must see what the first wrote."""
+
+    learned_path = tmp_path / "learned.yaml"
+    questions = [FormQuestion(id="q1", label="Desired start date", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    pipeline = make_pipeline(
+        adapter, learned=LearnedAnswers(learned_path),
+        ask_user=lambda q, draft=None: "Immediately", tmp_path=tmp_path,
+    )
+
+    await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    reloaded = LearnedAnswers(learned_path)
+    assert reloaded.get("Desired start date") == "Immediately"
+
+
+@pytest.mark.asyncio
+async def test_blank_answer_is_not_persisted(tmp_path: Path):
+    learned_path = tmp_path / "learned.yaml"
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    pipeline = make_pipeline(
+        adapter, learned=LearnedAnswers(learned_path),
+        ask_user=lambda q, draft=None: None, tmp_path=tmp_path,
+    )
+
+    await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert not learned_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_protected_gap_never_reaches_the_learned_store(tmp_path: Path):
+    learned_path = tmp_path / "learned.yaml"
+    questions = [
+        FormQuestion(
+            id="work-auth", label="Are you authorized to work in the United States?",
+            required=True, kind="select", options=["Yes", "No"],
+        )
+    ]
+    adapter = FakeAdapter(questions)
+    pipeline = make_pipeline(
+        adapter, learned=LearnedAnswers(learned_path),
+        ask_user=lambda q, draft=None: "Yes", tmp_path=tmp_path,
+    )
+
+    await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=True)
+
+    assert not learned_path.exists()
+
+
+@pytest.mark.asyncio
 async def test_user_declines_to_answer_defers(tmp_path: Path):
     questions = [FormQuestion(id="q1", label="Why us?", required=True, kind="text")]
     adapter = FakeAdapter(questions)

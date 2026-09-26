@@ -43,10 +43,13 @@ class Profile(BaseModel):
     # Free-text context for drafting that isn't on the resume: what kind of
     # role/company you're looking for next, in your own words (forward-looking).
     goals: str | None = None
-    # Sensitive or legally significant answers (work authorization, sponsorship,
-    # disability, veteran status, criminal history, ...). Only an explicit key here
-    # may answer a sensitive question; a missing key must never be inferred.
-    sensitive_answers: dict[str, Any] = Field(default_factory=dict)
+    # Protected or legally significant facts (work authorization, sponsorship,
+    # disability, veteran status, criminal history, demographics, ...), declared
+    # explicitly by hand. Fills and submits automatically like any other profile
+    # field, but is never derived: never inferred from another field, never
+    # matched across categories, never learned from a live prompt, never drafted.
+    # A protected question with no key here is always deferred, never guessed.
+    declared: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def entry_ids_are_unique(self) -> "Profile":

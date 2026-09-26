@@ -2,21 +2,24 @@
 
 Resolution order for a question label:
   1. exact profile alias (name, email, phone, location, website, linkedin)
-  2. sensitive question -> only an explicit `sensitive_answers` value, never inferred
+  2. protected question -> only an explicit `profile.declared` value, never derived
   3. previously learned answer (from a prior live prompt)
   4. otherwise unresolved -- the caller must ask the user
 
-Sensitive questions never fall through to the learned-answers store: an operator
-should not be able to accidentally "teach" the tool an answer to a legally
-significant question through a live prompt. That value belongs in the profile,
-written deliberately by hand.
+A protected question (work authorization, sponsorship, disability, veteran status,
+criminal history, demographics, ...) is answered only from an explicit `declared`
+value the user wrote by hand -- it is never inferred from another field, never
+matched across categories, never read from the learned-answers store, and never
+put to the user as a live prompt while an application is in progress. Declared
+values otherwise behave like any other profile field: once written, they fill and
+submit automatically, with no per-application review.
 """
 
 from dataclasses import dataclass
 
 from artemis.answers_store import LearnedAnswers
 from artemis.forms import FieldAnswer, FormQuestion
-from artemis.mapping import PROFILE_ALIASES, RESUME_ALIASES, is_sensitive_question, normalize_label
+from artemis.mapping import PROFILE_ALIASES, RESUME_ALIASES, is_protected_question, normalize_label
 from artemis.profile import Profile
 
 
@@ -25,9 +28,9 @@ class Resolution:
     """The outcome of trying to resolve one question, for the caller to act on."""
 
     answer: FieldAnswer | None
-    # Set only when a sensitive question has no explicit profile value: the
+    # Set only when a protected question has no explicit declared value: the
     # pipeline must defer, not prompt the user or fall back to a guess.
-    sensitive_unanswered: bool = False
+    undeclared: bool = False
 
 
 def resolve_question(
@@ -46,18 +49,13 @@ def resolve_question(
         if value:
             return Resolution(_matched_answer(question, str(value), "profile"))
         # A known contact field with no profile value is still unresolved, not
-        # sensitive -- fall through so the caller can prompt for it normally.
+        # protected -- fall through so the caller can prompt for it normally.
 
-    if is_sensitive_question(question.label):
-        sensitive_key = _sensitive_key_for(label)
-        value = profile.sensitive_answers.get(sensitive_key) if sensitive_key else None
+    if is_protected_question(question.label):
+        declared_key = _declared_key_for(label)
+        value = profile.declared.get(declared_key) if declared_key else None
         if value is None:
-            # Try any sensitive key whose value matches an option, for phrasing
-            # this project doesn't have an exact alias for. Conservative: only
-            # sensitive keys the profile actually declares are considered.
-            value = _first_matching_sensitive_value(question, profile)
-        if value is None:
-            return Resolution(answer=None, sensitive_unanswered=True)
+            return Resolution(answer=None, undeclared=True)
         return Resolution(_matched_answer(question, str(value), "profile"))
 
     learned_value = learned.get(question.label)
@@ -67,22 +65,10 @@ def resolve_question(
     return Resolution(answer=None)
 
 
-def _sensitive_key_for(normalized_label: str) -> str | None:
-    from artemis.mapping import SENSITIVE_ALIASES
+def _declared_key_for(normalized_label: str) -> str | None:
+    from artemis.mapping import DECLARED_ALIASES
 
-    return SENSITIVE_ALIASES.get(normalized_label)
-
-
-def _first_matching_sensitive_value(question: FormQuestion, profile: Profile) -> str | None:
-    if not profile.sensitive_answers:
-        return None
-    if question.kind != "select" or not question.options:
-        return None
-    normalized_options = {normalize_label(option) for option in question.options}
-    for value in profile.sensitive_answers.values():
-        if normalize_label(str(value)) in normalized_options:
-            return str(value)
-    return None
+    return DECLARED_ALIASES.get(normalized_label)
 
 
 def _matched_answer(question: FormQuestion, value: str, method: str) -> FieldAnswer:

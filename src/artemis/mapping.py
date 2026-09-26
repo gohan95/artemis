@@ -1,8 +1,12 @@
-"""Label normalization and sensitive-question detection.
+"""Label normalization and protected-question detection.
 
 Aliases are deliberately explicit exact matches. Add one only after observing it on
 a real posting; normalization never broadens matching beyond case/whitespace
 equality, because a wrong guess here can put the wrong value into the wrong field.
+
+`DECLARED_ALIASES` maps a protected question to the `profile.declared` key that may
+answer it -- an explicit value the user wrote by hand, never inferred from another
+field or another declared value (see `answers.py`).
 """
 
 import re
@@ -26,7 +30,7 @@ PROFILE_ALIASES: dict[str, str] = {
     "linkedin profile": "linkedin",
 }
 
-SENSITIVE_ALIASES: dict[str, str] = {
+DECLARED_ALIASES: dict[str, str] = {
     "are you authorized to work in the united states?": "work_authorization",
     "are you legally authorized to work in the united states?": "work_authorization",
     "are you legally authorized to work in the country where this job is located?": "work_authorization",
@@ -39,6 +43,16 @@ SENSITIVE_ALIASES: dict[str, str] = {
     "do you identify as a veteran?": "veteran_status",
     "have you ever been convicted of a crime?": "criminal_history",
     "do you have a criminal history?": "criminal_history",
+    "what is your gender?": "gender",
+    "what is your gender identity?": "gender",
+    "gender identity": "gender",
+    "what is your race/ethnicity?": "race_ethnicity",
+    "what is your race?": "race_ethnicity",
+    "race/ethnicity": "race_ethnicity",
+    "what are your pronouns?": "pronouns",
+    "pronouns": "pronouns",
+    "what is your sexual orientation?": "sexual_orientation",
+    "what is your date of birth?": "date_of_birth",
 }
 
 _SENSITIVE_QUESTION_PATTERNS = tuple(
@@ -67,10 +81,10 @@ def normalize_label(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def is_sensitive_question(label: str) -> bool:
-    """Conservatively identify sensitive or protected-class application questions."""
+def is_protected_question(label: str) -> bool:
+    """Conservatively identify protected-class/legally-significant application questions."""
 
     normalized = normalize_label(label)
-    return normalized in SENSITIVE_ALIASES or any(
+    return normalized in DECLARED_ALIASES or any(
         pattern.search(normalized) for pattern in _SENSITIVE_QUESTION_PATTERNS
     )

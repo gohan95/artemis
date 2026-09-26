@@ -39,7 +39,18 @@ preferences:
   employment_types:
     - Full-time
 
-# Sensitive fields (for example work authorization, sponsorship, disability, veteran,
-# or criminal history) require an explicit answer you supplied. Never infer them.
-# Add only answers you explicitly choose to provide; omitted answers stay unknown.
-sensitive_answers: {}
+# Protected/legally-significant facts (work authorization, sponsorship, disability,
+# veteran status, criminal history, demographics, ...). Once declared here, a value
+# fills and submits automatically like any other field above -- there is no separate
+# per-application review for these. What's protected is that a value here is never
+# derived from anything else: never inferred from another field, never matched
+# across categories, never learned from a live prompt. An undeclared key always
+# defers the application rather than guessing. "Prefer not to say" is a perfectly
+# valid declared value where a form allows it.
+declared:
+  work_authorization: "Yes"
+  sponsorship: "No"
+  veteran_status: "I am not a veteran"
+  disability: "Prefer not to say"
+  gender: "Prefer not to say"
+  race_ethnicity: "Prefer not to say"

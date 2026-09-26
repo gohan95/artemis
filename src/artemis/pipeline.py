@@ -115,17 +115,17 @@ class ApplicationPipeline:
             # CAPTCHA/login wall) to actually exist before looking at it --
             # see BaseATSAdapter._require_form_scope.
             questions = await adapter.read_questions(page)
-            answers, unresolved, sensitive_gaps = self._resolve_all(questions)
+            answers, unresolved, undeclared_gaps = self._resolve_all(questions)
 
-            for question in sensitive_gaps:
-                # Never prompt or fill a sensitive question with no explicit
-                # profile value -- surfaced to the user as a defer reason, not
+            for question in undeclared_gaps:
+                # Never prompt or fill a protected question with no explicit
+                # declared value -- surfaced to the user as a defer reason, not
                 # asked for live, so an answer can't slip in unrecorded.
                 unresolved.append(question)
 
             still_unresolved: list[FormQuestion] = []
             for question in unresolved:
-                if question in sensitive_gaps:
+                if question in undeclared_gaps:
                     still_unresolved.append(question)
                     continue
                 draft = None
@@ -149,19 +149,29 @@ class ApplicationPipeline:
 
             # An unresolved OPTIONAL field is not a reason to stop: "optional"
             # means the form itself does not require an answer, so leaving it
-            # blank is a valid, complete application. A required field, or a
-            # sensitive one, must still defer the whole run -- submitting with
-            # either missing would be an invalid application, not a smaller
-            # one. A sensitive gap blocks regardless of the page's own
-            # `required` flag: some ATS forms don't mark work-authorization
-            # etc. as HTML-required even though skipping it is never
-            # acceptable, and that must not depend on the page's own markup.
+            # blank is a valid, complete application. A required field, or an
+            # undeclared protected one, must still defer the whole run --
+            # submitting with either missing would be an invalid application,
+            # not a smaller one. An undeclared protected gap blocks regardless
+            # of the page's own `required` flag: some ATS forms don't mark
+            # work-authorization etc. as HTML-required even though skipping it
+            # is never acceptable, and that must not depend on the page's own
+            # markup.
             blocking_unresolved = [
-                q for q in still_unresolved if q.required or q in sensitive_gaps
+                q for q in still_unresolved if q.required or q in undeclared_gaps
             ]
             if blocking_unresolved:
+                blocking_undeclared = [q for q in blocking_unresolved if q in undeclared_gaps]
+                if blocking_undeclared:
+                    labels = ", ".join(f"'{q.label}'" for q in blocking_undeclared)
+                    reason = (
+                        f"undeclared protected question(s): {labels} -- add a matching key "
+                        "under profile.declared"
+                    )
+                else:
+                    reason = "unresolved required fields"
                 outcome = self._finish(
-                    canonical, ApplicationStatus.deferred, "unresolved required fields",
+                    canonical, ApplicationStatus.deferred, reason,
                     filled_ids, unresolved_ids,
                 )
                 return outcome
@@ -231,16 +241,16 @@ class ApplicationPipeline:
     ) -> tuple[list[FieldAnswer], list[FormQuestion], list[FormQuestion]]:
         answers: list[FieldAnswer] = []
         unresolved: list[FormQuestion] = []
-        sensitive_gaps: list[FormQuestion] = []
+        undeclared_gaps: list[FormQuestion] = []
         for question in questions:
             resolution = resolve_question(question, self.profile, self.learned)
             if resolution.answer is not None:
                 answers.append(resolution.answer)
-            elif resolution.sensitive_unanswered:
-                sensitive_gaps.append(question)
+            elif resolution.undeclared:
+                undeclared_gaps.append(question)
             else:
                 unresolved.append(question)
-        return answers, unresolved, sensitive_gaps
+        return answers, unresolved, undeclared_gaps
 
     def _finish(
         self,

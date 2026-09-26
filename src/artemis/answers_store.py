@@ -1,8 +1,8 @@
 """Persistence for answers the user gave live, so the same question is not asked twice.
 
 Kept separate from the hand-maintained profile so that file stays exactly what the
-user wrote. Never used for sensitive questions — those must come from an explicit
-`profile.sensitive_answers` entry, by design (see `answers.py`).
+user wrote. Never consulted for a protected question — those resolve only from an
+explicit `profile.declared` entry, by design (see `answers.py`).
 """
 
 from pathlib import Path

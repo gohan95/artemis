@@ -35,8 +35,8 @@ C4Component
     Container_Boundary(artemis, "artemis") {
         Component(cli, "cli.py", "Typer", "Commands: apply, history, validate-profile")
         Component(pipeline, "pipeline.py", "ApplicationPipeline", "Per-URL state machine: claim, read, resolve, fill, submit")
-        Component(answers, "answers.py", "resolve_question", "Resolves one field: profile alias, sensitive check, learned cache, or ask the user")
-        Component(mapping, "mapping.py", "aliases + patterns", "Exact-match field aliases; sensitive-question detection")
+        Component(answers, "answers.py", "resolve_question", "Resolves one field: profile alias, protected-question check, learned cache, or ask the user")
+        Component(mapping, "mapping.py", "aliases + patterns", "Exact-match field aliases; protected-question detection")
         Component(profile, "profile.py", "Profile", "Loads/validates data/profile.yaml")
         Component(store, "answers_store.py", "LearnedAnswers", "YAML cache of past live-prompt answers")
         Component(adapters, "ats/*.py", "BaseATSAdapter + 3 subclasses", "Per-vendor: read questions, fill fields, submit, confirm")
