@@ -37,9 +37,12 @@ class Profile(BaseModel):
     education: list[ProfileEntry] = Field(default_factory=list)
     skills: list[Any] | dict[str, Any] = Field(default_factory=list)
     preferences: dict[str, Any] = Field(default_factory=dict)
-    # Free-text context for drafting that isn't a job or a degree (e.g. what
-    # kind of role/company you're looking for, in your own words).
+    # Free-text overview/summary, usually lifted from the resume itself
+    # (backward-looking: who you are professionally).
     background: str | None = None
+    # Free-text context for drafting that isn't on the resume: what kind of
+    # role/company you're looking for next, in your own words (forward-looking).
+    goals: str | None = None
     # Sensitive or legally significant answers (work authorization, sponsorship,
     # disability, veteran status, criminal history, ...). Only an explicit key here
     # may answer a sensitive question; a missing key must never be inferred.

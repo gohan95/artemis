@@ -61,12 +61,22 @@ def test_merge_profile_generates_stable_deduped_entry_ids():
 
 
 def test_merge_profile_empty_extracted_values_do_not_overwrite_existing():
-    existing = make_profile(background="Looking for backend roles.")
-    extracted = {"background": ""}
+    existing = make_profile(goals="Looking for backend roles.")
+    extracted = {"goals": ""}
 
     merged = merge_profile(existing, extracted, {})
 
-    assert merged.background == "Looking for backend roles."
+    assert merged.goals == "Looking for backend roles."
+
+
+def test_merge_profile_background_and_goals_do_not_collide():
+    extracted = {"background": "Senior engineer with 8 years in distributed systems."}
+    answers = {"goals": "Looking for backend roles.", "resume_path": str(Path(__file__))}
+
+    merged = merge_profile(None, extracted, answers)
+
+    assert merged.background == "Senior engineer with 8 years in distributed systems."
+    assert merged.goals == "Looking for backend roles."
 
 
 def test_write_profile_round_trips_through_load_profile(tmp_path: Path):

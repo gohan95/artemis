@@ -17,14 +17,15 @@ def make_profile(**overrides) -> Profile:
     return Profile(**defaults)
 
 
-def test_profile_facts_includes_work_history_education_skills_background():
+def test_profile_facts_includes_work_history_education_skills_background_goals():
     profile = make_profile(
         work_history=[
             ProfileEntry(id="acme-eng", title="Engineer", organization="Acme", summary="Built widgets."),
         ],
         education=[ProfileEntry(id="mit-cs", title="BS CS", organization="MIT")],
         skills=["Python", "SQL"],
-        background="Looking for backend roles.",
+        background="Senior engineer with 8 years in distributed systems.",
+        goals="Looking for backend roles.",
     )
 
     facts = profile_facts(profile)
@@ -32,7 +33,8 @@ def test_profile_facts_includes_work_history_education_skills_background():
     assert facts["acme-eng"] == "Engineer -- Acme -- Built widgets."
     assert facts["mit-cs"] == "BS CS -- MIT"
     assert facts["skills"] == "Python, SQL"
-    assert facts["background"] == "Looking for backend roles."
+    assert facts["background"] == "Senior engineer with 8 years in distributed systems."
+    assert facts["goals"] == "Looking for backend roles."
 
 
 def test_profile_facts_empty_for_bare_profile():

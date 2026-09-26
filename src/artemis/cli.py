@@ -273,8 +273,10 @@ def setup(
         "location": ask("Location", prior("location")),
         "website": ask("Website", prior("website")),
         "linkedin": ask("LinkedIn", prior("linkedin")),
-        "background": ask(
-            "Background (a sentence or two on what you're looking for)", prior("background")
+        "goals": ask(
+            "What are you looking for in your next role? (a sentence or two -- "
+            "not a summary of past experience)",
+            prior("goals"),
         ),
     }
     if resume_path is not None:

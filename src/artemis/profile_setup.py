@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from artemis.llm import LLMClient, LLMError
 from artemis.profile import Profile, ProfileEntry
@@ -44,7 +44,12 @@ class ExtractedProfile(BaseModel):
     work_history: list[_ExtractedEntry] = []
     education: list[_ExtractedEntry] = []
     skills: list[str] = []
-    background: str | None = None
+    # `goals` (forward-looking intent) is deliberately not a field here -- a
+    # resume has none to extract; cli.py's `answers` supplies it directly.
+    background: str | None = Field(
+        default=None,
+        description="The resume's own summary/overview section, if it has one, verbatim or lightly condensed.",
+    )
 
 
 def resume_text(path: Path) -> str:
@@ -73,8 +78,14 @@ def extract_profile_fields(text: str, client: LLMClient) -> dict[str, Any]:
 
     prompt = (
         "Read this resume and extract structured profile fields as JSON. "
-        "Only include information actually present in the text below; leave a "
-        "field empty rather than guessing.\n\n"
+        "Only include information explicitly present in the text below; leave a "
+        "field empty rather than guessing or inferring.\n\n"
+        "For `background`: use it only if the resume has an explicit "
+        "summary/objective/profile section near the top. Copy it verbatim or "
+        "lightly condense it. Do not write a background by summarizing work "
+        "history, skills, or job titles yourself -- if no such section exists, "
+        "leave `background` empty. Do not infer forward-looking career goals or "
+        "intentions; that is out of scope here.\n\n"
         f"Resume:\n{text}"
     )
     try:

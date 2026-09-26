@@ -51,6 +51,8 @@ def profile_facts(profile: Profile) -> dict[str, str]:
             facts["skills"] = ", ".join(str(skill) for skill in skills)
     if profile.background:
         facts["background"] = profile.background
+    if profile.goals:
+        facts["goals"] = profile.goals
     return facts
 
 
@@ -61,7 +63,10 @@ def build_prompt(question: FormQuestion, facts: dict[str, str]) -> str:
         "You are drafting one answer to a job application question, on behalf of "
         "the candidate described by the facts below. Write a concise, first-person "
         "answer using only these facts -- do not invent employers, skills, dates, "
-        "or achievements that are not listed.\n\n"
+        "or achievements that are not listed. You have not been given any "
+        "information about the specific company or role beyond the question "
+        "text itself -- do not invent or assume anything about them (e.g. "
+        "products, mission, culture, reputation).\n\n"
         f"Facts:\n{fact_lines}\n\n"
         f"Question: {question.label}\n\n"
         "Return JSON with `answer` (the drafted text) and `evidence_ids` (the ids "
