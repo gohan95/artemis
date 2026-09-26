@@ -123,6 +123,15 @@ class ApplicationPipeline:
                 # asked for live, so an answer can't slip in unrecorded.
                 unresolved.append(question)
 
+            job = None
+            if self.draft_answer is not None and any(
+                q not in undeclared_gaps and _is_draftable(q) for q in unresolved
+            ):
+                # Fetched once per URL, not per question -- the same posting
+                # backs every question on the page. read_job_context never
+                # raises, so this can't itself defer the application.
+                job = await adapter.read_job_context(page)
+
             still_unresolved: list[FormQuestion] = []
             for question in unresolved:
                 if question in undeclared_gaps:
@@ -130,7 +139,7 @@ class ApplicationPipeline:
                     continue
                 draft = None
                 if self.draft_answer is not None and _is_draftable(question):
-                    draft = self.draft_answer(question)
+                    draft = self.draft_answer(question, job)
                 value = self.ask_user(question, draft)
                 if value is None or not value.strip():
                     still_unresolved.append(question)

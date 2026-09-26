@@ -44,6 +44,11 @@ class FakeAdapter(ATSAdapter):
     async def read_questions(self, page):
         return self.questions
 
+    async def read_job_context(self, page):
+        from artemis.ats.base import JobContext
+
+        return JobContext()
+
     async def fill(self, page, answers):
         self.filled = list(answers)
 
@@ -244,6 +249,52 @@ async def test_sensitive_gap_blocks_even_when_page_marks_it_not_required(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_job_context_is_fetched_once_and_passed_to_the_drafter(tmp_path: Path):
+    from artemis.ats.base import JobContext
+
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    job_context = JobContext(company="Acme", role="Staff Engineer", requirements="Distributed systems.")
+    adapter.read_job_context = lambda page: _async_return(job_context)
+    seen_jobs = []
+
+    def draft_answer(question, job=None):
+        seen_jobs.append(job)
+        return None
+
+    pipeline = make_pipeline(
+        adapter, ask_user=lambda q, draft=None: None, draft_answer=draft_answer, tmp_path=tmp_path
+    )
+
+    await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert seen_jobs == [job_context]
+
+
+@pytest.mark.asyncio
+async def test_job_context_is_not_fetched_when_no_drafter_is_configured(tmp_path: Path):
+    questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    fetched = []
+
+    async def read_job_context(page):
+        fetched.append(True)
+        from artemis.ats.base import JobContext
+        return JobContext()
+
+    adapter.read_job_context = read_job_context
+    pipeline = make_pipeline(adapter, ask_user=lambda q, draft=None: None, tmp_path=tmp_path)
+
+    await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert fetched == []
+
+
+async def _async_return(value):
+    return value
+
+
+@pytest.mark.asyncio
 async def test_draft_is_offered_and_accepted_via_ask_user(tmp_path: Path):
     questions = [FormQuestion(id="q1", label="Why us?", required=False, kind="text")]
     adapter = FakeAdapter(questions)
@@ -255,7 +306,7 @@ async def test_draft_is_offered_and_accepted_via_ask_user(tmp_path: Path):
         return draft.text if draft else None
 
     pipeline = make_pipeline(
-        adapter, ask_user=ask, draft_answer=lambda q: draft, tmp_path=tmp_path
+        adapter, ask_user=ask, draft_answer=lambda q, job=None: draft, tmp_path=tmp_path
     )
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
@@ -272,7 +323,7 @@ async def test_draft_can_be_declined_leaving_field_unresolved(tmp_path: Path):
     draft = Draft(text="Drafted answer.", evidence_ids=("fact-1",))
 
     pipeline = make_pipeline(
-        adapter, ask_user=lambda q, draft=None: None, draft_answer=lambda q: draft, tmp_path=tmp_path
+        adapter, ask_user=lambda q, draft=None: None, draft_answer=lambda q, job=None: draft, tmp_path=tmp_path
     )
 
     [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
@@ -320,7 +371,7 @@ async def test_sensitive_question_is_never_passed_to_the_drafter(tmp_path: Path)
     adapter = FakeAdapter(questions)
     drafted: list[str] = []
 
-    def draft_answer(question):
+    def draft_answer(question, job=None):
         drafted.append(question.id)
         return None
 

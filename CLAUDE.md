@@ -107,6 +107,19 @@ drafting call, not the other way around. Any failure (no API key, network error,
 malformed response, no grounding) silently falls through to the plain blank prompt; a
 drafting problem must never fail a run.
 
+A draft is also grounded, non-exclusively, by two more optional inputs: the posting's own
+job context (`ats.base.JobContext` — company/role/requirements, read from the page outside
+the form; see `ats/base.py`) and up to three of the person's own prior answers to the same
+recognized question type (`mapping.canonical_type`, `LearnedAnswers.style_examples`), as a
+style example only. Neither is ever addable to `profile_facts` — `validate_draft` still
+requires at least one real profile-fact citation regardless of what else the prompt
+contains, so a draft can never be "grounded" purely in the model's own earlier prose or an
+unverified claim about the employer. `style_examples` also excludes any prior answer whose
+`provenance` is `accepted_draft` (an LLM draft the person didn't bother to edit) — only text
+the person actually wrote or edited counts as evidence of their voice. Two extra checks in
+`validate_draft` catch failure modes specific to this extra context: near-verbatim reuse of
+a style example, and the draft reproducing a different application's company name.
+
 `profile_setup.py` backs `artemis setup`: extracts text from a resume PDF (`pypdf`) and
 asks the LLM to read it into structured fields, which the person reviews and edits before
 anything is written to `data/profile.yaml`. Without an API key, setup falls back to fully

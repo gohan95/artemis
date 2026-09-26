@@ -120,7 +120,7 @@ def apply(
     if draft:
         client = build_client(settings)
         if client is not None:
-            draft_answer = GroundedDrafter(client, profile)
+            draft_answer = GroundedDrafter(client, profile, learned)
 
     resolved_headless = settings.browser_headless if headless is None else headless
     resolved_pacing = settings.pacing_enabled if pacing is None else pacing
