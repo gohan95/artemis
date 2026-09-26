@@ -34,6 +34,19 @@ def _is_draftable(question: FormQuestion) -> bool:
     return question.kind in {"text", "unknown"} and not question.options
 
 
+class AskCompanyNotes(Protocol):
+    """Ask, once per URL, for 1-2 things the person wants a draft to mention
+    about this specific company -- optional, skippable, never inferred.
+    Called only when a draftable question exists and the posting's own
+    company name was actually found (see `_process_url`)."""
+
+    def __call__(self, company: str) -> str | None: ...
+
+
+def _no_company_notes(company: str) -> str | None:
+    return None
+
+
 class OnFilled(Protocol):
     """Called with a filled or submitted page, before it is closed.
 
@@ -76,6 +89,7 @@ class ApplicationPipeline:
         ask_user: AskUser,
         on_filled: OnFilled = _no_pause,
         draft_answer: DraftAnswer | None = None,
+        ask_company_notes: AskCompanyNotes = _no_company_notes,
     ):
         self.profile = profile
         self.history = history
@@ -85,6 +99,7 @@ class ApplicationPipeline:
         self.ask_user = ask_user
         self.on_filled = on_filled
         self.draft_answer = draft_answer
+        self.ask_company_notes = ask_company_notes
 
     async def run(self, urls: list[str], *, submit: bool) -> list[ApplicationOutcome]:
         return [await self._process_url(url, submit=submit) for url in urls]
@@ -124,6 +139,7 @@ class ApplicationPipeline:
                 unresolved.append(question)
 
             job = None
+            company_notes = ""
             if self.draft_answer is not None and any(
                 q not in undeclared_gaps and _is_draftable(q) for q in unresolved
             ):
@@ -131,6 +147,8 @@ class ApplicationPipeline:
                 # backs every question on the page. read_job_context never
                 # raises, so this can't itself defer the application.
                 job = await adapter.read_job_context(page)
+                if job.company:
+                    company_notes = self.ask_company_notes(job.company) or ""
 
             still_unresolved: list[FormQuestion] = []
             for question in unresolved:
@@ -139,7 +157,7 @@ class ApplicationPipeline:
                     continue
                 draft = None
                 if self.draft_answer is not None and _is_draftable(question):
-                    draft = self.draft_answer(question, job)
+                    draft = self.draft_answer(question, job, company_notes)
                 value = self.ask_user(question, draft)
                 if value is None or not value.strip():
                     still_unresolved.append(question)

@@ -53,6 +53,17 @@ def _prompt_user(question: FormQuestion, draft: Draft | None = None) -> str | No
     return value or None
 
 
+def _prompt_company_notes(company: str) -> str | None:
+    try:
+        value = typer.prompt(
+            f"Anything specific about {company} you'd like a drafted answer to mention?",
+            default="", show_default=False,
+        )
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return value or None
+
+
 async def _pause_for_review(page, outcome) -> None:
     """Hold a filled/submitted page open until the person says to move on.
 
@@ -153,6 +164,10 @@ def apply(
                     pause=not resolved_headless,
                 )
 
+            pipeline_kwargs = {}
+            if draft_answer is not None:
+                pipeline_kwargs["ask_company_notes"] = _prompt_company_notes
+
             pipeline = ApplicationPipeline(
                 profile=profile,
                 history=history,
@@ -166,6 +181,7 @@ def apply(
                 ask_user=_prompt_user,
                 on_filled=on_filled,
                 draft_answer=draft_answer,
+                **pipeline_kwargs,
             )
             outcomes = await pipeline.run(urls, submit=submit)
 

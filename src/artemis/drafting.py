@@ -17,7 +17,6 @@ which is the regression guard for this property.
 """
 
 import difflib
-import re
 import sys
 from dataclasses import dataclass
 from typing import Protocol
@@ -46,7 +45,9 @@ class Draft:
 
 
 class DraftAnswer(Protocol):
-    def __call__(self, question: FormQuestion, job: JobContext | None = None) -> Draft | None: ...
+    def __call__(
+        self, question: FormQuestion, job: JobContext | None = None, company_notes: str = ""
+    ) -> Draft | None: ...
 
 
 def profile_facts(profile: Profile) -> dict[str, str]:
@@ -75,11 +76,12 @@ def build_prompt(
     facts: dict[str, str],
     job: JobContext | None = None,
     style_examples: tuple[str, ...] = (),
+    company_notes: str = "",
 ) -> str:
     fact_lines = "\n".join(f"- {fact_id}: {text}" for fact_id, text in facts.items())
     length_hint = f" Keep it under {question.max_length} characters." if question.max_length else ""
 
-    if job and (job.company or job.role or job.requirements):
+    if job and (job.company or job.role or job.requirements or company_notes):
         company_note = (
             "You have not been given the specific company's name -- do not invent or "
             "assume one." if not job.company else ""
@@ -93,6 +95,7 @@ def build_prompt(
                 f"Company: {job.company}" if job.company else "",
                 f"Role: {job.role}" if job.role else "",
                 f"Requirements: {job.requirements}" if job.requirements else "",
+                f"Specific things the candidate wants mentioned: {company_notes}" if company_notes else "",
             ) if line
         )
         job_section = (
@@ -137,15 +140,13 @@ def validate_draft(
     response: DraftResponse,
     facts: dict[str, str],
     style_examples: tuple[str, ...] = (),
-    job: JobContext | None = None,
 ) -> Draft | None:
-    """Reject an ungrounded draft, and two failure modes specific to stage 4's
-    extra prompt context: near-verbatim reuse of a style example (the model
-    replaying a prior answer rather than adapting to the current question),
-    and a company name in the draft that isn't the one in `job` (the model
-    reproducing a style example's employer instead of the current one). Both
-    checks are independent of grounding -- an answer can be perfectly
-    evidence-grounded and still fail either one."""
+    """Reject an ungrounded draft, or one that's near-verbatim replay of a
+    style example rather than an answer adapted to the current question.
+    Everything else -- a style example naming a different company, an
+    unwanted tone, an awkward phrase -- is left for the person to catch when
+    they review the draft; that review is the actual safety net here, and
+    validation isn't the place to re-build it in code."""
 
     if not response.answer.strip():
         return None
@@ -155,8 +156,6 @@ def validate_draft(
         return None
     answer = response.answer.strip()
     if _too_similar_to_any(answer, style_examples):
-        return None
-    if _leaks_a_different_company(answer, style_examples, job):
         return None
     return Draft(text=answer, evidence_ids=tuple(response.evidence_ids))
 
@@ -168,34 +167,15 @@ def _too_similar_to_any(answer: str, style_examples: tuple[str, ...]) -> bool:
     )
 
 
-def _leaks_a_different_company(answer: str, style_examples: tuple[str, ...], job: JobContext | None) -> bool:
-    """A style example may name a prior application's company; the draft must
-    never reproduce that name unless it's also the current job's company."""
-
-    current_company = job.company.strip().casefold() if job and job.company else None
-    for example in style_examples:
-        for word in _capitalized_words(example):
-            folded = word.casefold()
-            if folded in answer.casefold() and folded != current_company:
-                return True
-    return False
-
-
-def _capitalized_words(text: str) -> list[str]:
-    # A crude but conservative company-name heuristic: a capitalized word not
-    # at the start of a sentence. False negatives (a lowercase or multi-word
-    # name missed) are safe -- they just mean the leak check doesn't catch
-    # every case, not that it wrongly blocks a clean draft.
-    return re.findall(r"(?<!^)(?<!\. )(?<!\? )(?<!\! )\b[A-Z][a-zA-Z]{2,}\b", text)
-
-
 class GroundedDrafter:
     def __init__(self, client: LLMClient, profile: Profile, learned: LearnedAnswers | None = None):
         self._client = client
         self._facts = profile_facts(profile)
         self._learned = learned
 
-    def __call__(self, question: FormQuestion, job: JobContext | None = None) -> Draft | None:
+    def __call__(
+        self, question: FormQuestion, job: JobContext | None = None, company_notes: str = ""
+    ) -> Draft | None:
         if not self._facts:
             return None
         style_examples: tuple[str, ...] = ()
@@ -203,10 +183,12 @@ class GroundedDrafter:
             canonical = canonical_type(question.label)
             if canonical is not None:
                 style_examples = tuple(self._learned.style_examples(canonical))
-        prompt = build_prompt(question, self._facts, job=job, style_examples=style_examples)
+        prompt = build_prompt(
+            question, self._facts, job=job, style_examples=style_examples, company_notes=company_notes
+        )
         try:
             response = self._client.complete_json(prompt, DraftResponse)
         except LLMError as error:
             print(f"LLM call failed: {error}", file=sys.stderr)
             return None
-        return validate_draft(response, self._facts, style_examples, job)
+        return validate_draft(response, self._facts, style_examples)

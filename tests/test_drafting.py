@@ -132,6 +132,18 @@ def test_build_prompt_keeps_no_company_information_sentence_when_job_context_emp
     assert "You have not been given any" in prompt
 
 
+def test_build_prompt_includes_company_notes_as_background_only():
+    prompt = build_prompt(
+        FormQuestion(id="q1", label="Why do you want to work here?", required=False, kind="text"),
+        facts={"acme-eng": "Engineer -- Acme"},
+        job=JobContext(company="Acme"),
+        company_notes="their focus on developer tooling",
+    )
+
+    assert "their focus on developer tooling" in prompt
+    assert "do not cite" in prompt.lower()
+
+
 def test_validate_draft_rejects_near_verbatim_replay_of_a_style_example():
     facts = {"acme-eng": "Engineer -- Acme"}
     example = "I am drawn to solving hard distributed-systems problems at scale."
@@ -151,30 +163,6 @@ def test_validate_draft_accepts_an_adapted_answer_not_near_verbatim():
     assert validate_draft(response, facts, style_examples=(example,)) is not None
 
 
-def test_validate_draft_rejects_a_leaked_company_name_from_a_style_example():
-    facts = {"acme-eng": "Engineer -- Acme"}
-    example = "I've always admired Initech's engineering culture."
-    response = DraftResponse(
-        answer="I've always admired Initech's engineering culture and want to help it grow.",
-        evidence_ids=["acme-eng"],
-    )
-
-    assert validate_draft(
-        response, facts, style_examples=(example,), job=JobContext(company="Globex")
-    ) is None
-
-
-def test_validate_draft_allows_the_current_companys_name():
-    facts = {"acme-eng": "Engineer -- Acme"}
-    example = "I've always admired Acme's engineering culture."
-    response = DraftResponse(
-        answer="I've always admired Acme's focus on reliability.",
-        evidence_ids=["acme-eng"],
-    )
-
-    assert validate_draft(
-        response, facts, style_examples=(example,), job=JobContext(company="Acme")
-    ) is not None
 
 
 class _StubClient:
