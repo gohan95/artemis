@@ -135,7 +135,15 @@ class ApplicationPipeline:
                 if value is None or not value.strip():
                     still_unresolved.append(question)
                     continue
-                self.learned.set(question.label, value)
+                provenance = "typed"
+                if draft is not None and value == draft.text:
+                    provenance = "accepted_draft"
+                elif draft is not None:
+                    provenance = "edited_draft"
+                self.learned.record(
+                    question.label, value,
+                    kind=question.kind, options=question.options, provenance=provenance,
+                )
                 resolution = resolve_question(question, self.profile, self.learned)
                 if resolution.answer is not None:
                     answers.append(resolution.answer)

@@ -58,7 +58,7 @@ def resolve_question(
             return Resolution(answer=None, undeclared=True)
         return Resolution(_matched_answer(question, str(value), "profile"))
 
-    learned_value = learned.get(question.label)
+    learned_value = learned.get(question.label, question.kind, question.options)
     if learned_value is not None:
         return Resolution(_matched_answer(question, learned_value, "learned"))
 

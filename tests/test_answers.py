@@ -66,7 +66,7 @@ def test_protected_question_with_declared_value_is_answered(learned):
 
 
 def test_protected_question_never_reads_learned_answers(learned):
-    learned.set("Are you a veteran?", "No")
+    learned.record("Are you a veteran?", "No")
     profile = make_profile(declared={})
     question = FormQuestion(id="vet", label="Are you a veteran?", required=True, kind="select", options=["Yes", "No"])
     resolution = resolve_question(question, profile, learned)
@@ -128,7 +128,7 @@ def test_learned_answer_resolves_on_subsequent_ask(learned):
     question = FormQuestion(id="q1", label="Desired start date", required=False, kind="text")
     assert resolve_question(question, profile, learned).answer is None
 
-    learned.set("Desired start date", "Immediately")
+    learned.record("Desired start date", "Immediately")
     resolution = resolve_question(question, profile, learned)
     assert resolution.answer.value == "Immediately"
     assert resolution.answer.method == "learned"
@@ -141,16 +141,17 @@ def test_resume_alias_resolves_to_resume_path(learned):
     assert resolution.answer.value == str(profile.resume_path)
 
 
-def test_trailing_punctuation_is_currently_a_cache_miss(learned):
-    """Known-bad characterization: normalize_label preserves punctuation, so a
-    label learned with a trailing '?' does not resolve without it. Pinned here
-    so a future canonical-matching layer flips this with a visible diff."""
+def test_canonical_type_match_survives_rephrasing(learned):
+    """The regression this store rewrite exists to fix: two phrasings of the
+    same recognized question type ("why_company") now share one learned
+    answer, including across a trailing '?' that normalize_label alone would
+    treat as a different cache key."""
 
     profile = make_profile()
-    learned.set("Why do you want to work here?", "Because the mission resonates with me.")
+    learned.record("Why do you want to work here?", "Because the mission resonates with me.")
 
     with_mark = FormQuestion(id="q1", label="Why do you want to work here?", required=False, kind="text")
-    without_mark = FormQuestion(id="q2", label="Why do you want to work here", required=False, kind="text")
+    rephrased = FormQuestion(id="q2", label="What interests you about our company", required=False, kind="text")
 
-    assert resolve_question(with_mark, profile, learned).answer is not None
-    assert resolve_question(without_mark, profile, learned).answer is None
+    assert resolve_question(with_mark, profile, learned).answer.value == "Because the mission resonates with me."
+    assert resolve_question(rephrased, profile, learned).answer.value == "Because the mission resonates with me."
