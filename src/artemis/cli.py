@@ -36,11 +36,14 @@ def _read_urls(path: Path) -> list[str]:
     return urls
 
 
-def _prompt_user(question: FormQuestion, draft: Draft | None = None) -> str | None:
-    prompt = f"[unresolved] {question.label}"
+def _prompt_user(question: FormQuestion, draft: Draft | None = None, is_learned: bool = False) -> str | None:
+    label = "[review]" if is_learned else "[unresolved]"
+    prompt = f"{label} {question.label}"
     if question.options:
         prompt += f" (options: {', '.join(question.options)})"
-    if draft is not None:
+    if is_learned:
+        typer.echo("  reused from a previous application -- please confirm")
+    elif draft is not None:
         typer.echo(f"  drafted from: {', '.join(draft.evidence_ids)}")
     if question.required:
         prompt += " [blank to defer this application]: "

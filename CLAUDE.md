@@ -39,7 +39,10 @@ structured profile fields from a resume during setup — see "Product boundary" 
 1. `HistoryStore.claim(url)` — atomic SQLite claim, dedups on canonicalized URL.
 2. Pick the first `ATSAdapter` whose `supports_url` matches (exact host allowlist).
 3. `wait_until_ready` → `read_questions` → `answers.resolve_question` per field: resume alias → exact
-   profile alias → protected-question check → learned-answers store → ask the user live and cache it.
+   profile alias → exact preference alias → protected-question check → learned-answers store → ask
+   the user live and cache it. A field resolved from the profile fills without a live look; a field
+   resolved from the learned-answers store always goes back to the person for a quick confirm first
+   (`pipeline.py`'s `for_review` bucket) — it was approved for a *different* application, not this one.
 4. `adapter.fill` (never submits) → if `--submit`, `adapter.submit` → `confirm_submission`.
 5. `HistoryStore.finish` records the status; `OnFilled` gets one look at the page before it closes.
 

@@ -1,10 +1,14 @@
 """Per-URL orchestration: claim, read, resolve, prompt for gaps, fill, maybe submit.
 
-There is no separate submission gate re-deriving every answer. Confidence is
-established once, at resolution time (see `answers.py`): a field is either
-resolved from the profile/learned-answers/user input, or it is unresolved and the
-run defers on it. Submission additionally requires the caller opted in via
-`submit=True` -- staged rollout of autonomy, not a correctness check.
+There is no separate submission gate re-deriving every answer. A field resolved
+from the profile (a contact alias, a declared value, a preference) fills without
+a live look -- the person already reviewed it once, when they wrote it into
+`profile.yaml`. A field resolved from the learned-answers store was approved for
+a *different* application, though, so it always goes back to the person for a
+quick confirm before filling here (see `_resolve_all`'s `for_review` bucket) --
+this is the only escalation logic in the pipeline; there is no confidence
+scoring or auto-mode flag. Submission additionally requires the caller opted in
+via `submit=True` -- staged rollout of autonomy, not a correctness check.
 """
 
 from dataclasses import dataclass
@@ -23,11 +27,17 @@ from artemis.profile import Profile
 class AskUser(Protocol):
     """Ask the user a question live, in whatever UI the caller provides.
 
-    `draft` is an LLM-drafted suggestion to offer as an editable default, or
-    None when no drafter is configured or no grounded draft was produced.
+    `draft` is a suggestion to offer as an editable default -- either an
+    LLM-drafted answer, or (when `is_learned` is True) an answer reused from
+    a prior application. Both must be shown, not silently filled: a reused
+    learned answer has never been reviewed for *this* application, only
+    whatever one it was first typed for, and a wrong one going out unseen is
+    the whole risk this project exists to avoid.
     """
 
-    def __call__(self, question: FormQuestion, draft: Draft | None = None) -> str | None: ...
+    def __call__(
+        self, question: FormQuestion, draft: Draft | None = None, is_learned: bool = False
+    ) -> str | None: ...
 
 
 def _is_draftable(question: FormQuestion) -> bool:
@@ -130,7 +140,7 @@ class ApplicationPipeline:
             # CAPTCHA/login wall) to actually exist before looking at it --
             # see BaseATSAdapter._require_form_scope.
             questions = await adapter.read_questions(page)
-            answers, unresolved, undeclared_gaps = self._resolve_all(questions)
+            answers, for_review, unresolved, undeclared_gaps = self._resolve_all(questions)
 
             for question in undeclared_gaps:
                 # Never prompt or fill a protected question with no explicit
@@ -151,6 +161,25 @@ class ApplicationPipeline:
                     company_notes = self.ask_company_notes(job.company) or ""
 
             still_unresolved: list[FormQuestion] = []
+            for question, learned_answer in for_review:
+                # A learned answer is never filled sight-unseen: it was
+                # approved for a different application, not this one.
+                draft = Draft(text=learned_answer.value, evidence_ids=())
+                value = self.ask_user(question, draft, is_learned=True)
+                if value is None or not value.strip():
+                    still_unresolved.append(question)
+                    continue
+                if value != learned_answer.value:
+                    # A correction -- update the store so the next
+                    # application gets the corrected value, not the stale one.
+                    self.learned.record(
+                        question.label, value,
+                        kind=question.kind, options=question.options, provenance="typed",
+                    )
+                    answers.append(FieldAnswer(question.id, value, "user"))
+                else:
+                    answers.append(learned_answer)
+
             for question in unresolved:
                 if question in undeclared_gaps:
                     still_unresolved.append(question)
@@ -273,19 +302,37 @@ class ApplicationPipeline:
 
     def _resolve_all(
         self, questions: list[FormQuestion]
-    ) -> tuple[list[FieldAnswer], list[FormQuestion], list[FormQuestion]]:
+    ) -> tuple[list[FieldAnswer], list[tuple[FormQuestion, FieldAnswer]], list[FormQuestion], list[FormQuestion]]:
+        """Partition questions into: filled silently, filled but pending
+        review, unresolved, and undeclared-protected.
+
+        A `profile`-method answer (resume/contact alias, preference, declared
+        value) is something the person already reviewed once when they wrote
+        it into `profile.yaml` -- it fills without a second look, same as
+        always. A `learned`-method answer was typed for a *different*
+        application; reusing it here is a real time-saver, but it has not
+        been looked at for this specific form, so it goes back to the person
+        for a quick confirm instead of filling silently. This is the entire
+        difference from the pre-review behavior -- no confidence scoring,
+        no provenance tiers, just: did a human already approve this exact
+        value for this exact form, or didn't they.
+        """
+
         answers: list[FieldAnswer] = []
+        for_review: list[tuple[FormQuestion, FieldAnswer]] = []
         unresolved: list[FormQuestion] = []
         undeclared_gaps: list[FormQuestion] = []
         for question in questions:
             resolution = resolve_question(question, self.profile, self.learned)
-            if resolution.answer is not None:
+            if resolution.answer is not None and resolution.answer.method == "learned":
+                for_review.append((question, resolution.answer))
+            elif resolution.answer is not None:
                 answers.append(resolution.answer)
             elif resolution.undeclared:
                 undeclared_gaps.append(question)
             else:
                 unresolved.append(question)
-        return answers, unresolved, undeclared_gaps
+        return answers, for_review, unresolved, undeclared_gaps
 
     def _finish(
         self,

@@ -86,7 +86,7 @@ def make_pipeline(
         learned=learned or LearnedAnswers(tmp_path / "learned.yaml"),
         adapters=[adapter],
         page_factory=page_factory,
-        ask_user=ask_user or (lambda q, draft=None: None),
+        ask_user=ask_user or (lambda q, draft=None, is_learned=False: None),
         **kwargs,
     )
 
@@ -138,6 +138,65 @@ async def test_unresolved_gap_prompts_user_and_fills_answer(tmp_path: Path):
 
     assert outcome.status == ApplicationStatus.filled
     assert adapter.filled[0].value == "Immediately"
+
+
+@pytest.mark.asyncio
+async def test_a_reused_learned_answer_is_never_filled_without_being_shown(tmp_path: Path):
+    """The core property this stage adds: a learned answer was approved for a
+    DIFFERENT application, not this one, so reusing it must always go back to
+    the person for a quick confirm rather than filling silently."""
+
+    questions = [FormQuestion(id="q1", label="Desired start date", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    learned = LearnedAnswers(tmp_path / "learned.yaml")
+    learned.record("Desired start date", "Immediately")
+    prompted = []
+
+    def ask(question, draft=None, is_learned=False):
+        prompted.append((question.id, draft.text if draft else None, is_learned))
+        return draft.text if draft else None
+
+    pipeline = make_pipeline(adapter, learned=learned, ask_user=ask, tmp_path=tmp_path)
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert prompted == [("q1", "Immediately", True)]
+    assert outcome.status == ApplicationStatus.filled
+    assert adapter.filled[0].value == "Immediately"
+
+
+@pytest.mark.asyncio
+async def test_editing_a_reused_learned_answer_updates_the_store(tmp_path: Path):
+    questions = [FormQuestion(id="q1", label="Desired start date", required=False, kind="text")]
+    adapter = FakeAdapter(questions)
+    learned_path = tmp_path / "learned.yaml"
+    learned = LearnedAnswers(learned_path)
+    learned.record("Desired start date", "Immediately")
+
+    pipeline = make_pipeline(
+        adapter, learned=learned, ask_user=lambda q, draft=None, is_learned=False: "After 2 weeks",
+        tmp_path=tmp_path,
+    )
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert outcome.status == ApplicationStatus.filled
+    assert adapter.filled[0].value == "After 2 weeks"
+    assert LearnedAnswers(learned_path).get("Desired start date") == "After 2 weeks"
+
+
+@pytest.mark.asyncio
+async def test_declining_a_reused_learned_answer_defers_a_required_field(tmp_path: Path):
+    questions = [FormQuestion(id="q1", label="Desired start date", required=True, kind="text")]
+    adapter = FakeAdapter(questions)
+    learned = LearnedAnswers(tmp_path / "learned.yaml")
+    learned.record("Desired start date", "Immediately")
+
+    pipeline = make_pipeline(
+        adapter, learned=learned, ask_user=lambda q, draft=None, is_learned=False: None, tmp_path=tmp_path,
+    )
+    [outcome] = await pipeline.run(["https://boards.greenhouse.io/acme/jobs/1"], submit=False)
+
+    assert outcome.status == ApplicationStatus.deferred
+    assert "q1" in outcome.unresolved_fields
 
 
 @pytest.mark.asyncio
