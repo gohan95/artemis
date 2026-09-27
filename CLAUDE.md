@@ -67,7 +67,9 @@ phrasing on a real posting. Protected-question detection is the opposite: delibe
 regexes, since over-triggering there just causes an extra defer.
 
 `LearnedAnswers` caches what the user typed in response to a live prompt for an unmapped question —
-it's a cache of prior answers, not a generated answer bank.
+it's a cache of prior answers, not a generated answer bank. Keyed by the question's own normalized
+label, so a rephrasing of the same question is treated as a different one — a known, deliberate
+limitation kept simple until it's actually annoying in practice.
 
 `profile.preferences` (`Preferences` in `profile.py`) is typed and explicit — salary expectation,
 start date, notice period, relocation, remote preference, referral source, and similar recurring
@@ -89,8 +91,9 @@ user-agent/header overrides here — a spoofed value disagrees with the browser'
 Hints/TLS/WebGL signals and is more detectable, not less; the module only sets
 locale/timezone/color_scheme, derived deterministically from the profile directory.
 
-`pacing.py` provides optional human-like typing/click pacing (`Pacer` protocol), defaulting to a
-no-op `NullPacer` everywhere it's constructed.
+`pacing.py` defines the `Pacer` protocol every adapter fill/click goes through; `NullPacer` (instant,
+no-op) is the only implementation. Kept as a protocol so a real pacing strategy could be dropped in
+later without touching the adapters, if that ever turns out to be needed.
 
 ### Receipts (`receipts.py`)
 
@@ -117,22 +120,11 @@ drafting call, not the other way around. Any failure (no API key, network error,
 malformed response, no grounding) silently falls through to the plain blank prompt; a
 drafting problem must never fail a run.
 
-A draft is also grounded, non-exclusively, by more optional inputs: the posting's own job
-context (`ats.base.JobContext` — company/role/requirements, read from the page outside the
-form; see `ats/base.py`), an optional one-line note the person can give per application about
-something specific to mention (`cli.py`'s `_prompt_company_notes`, asked once per URL, only
-when a company name was actually found), and up to three of the person's own prior answers to
-the same recognized question type (`mapping.canonical_type`, `LearnedAnswers.style_examples`),
-as a style example only. None of these is ever addable to `profile_facts` — `validate_draft`
-still requires at least one real profile-fact citation regardless of what else the prompt
-contains, so a draft can never be "grounded" purely in the model's own earlier prose or an
-unverified claim about the employer. `style_examples` also excludes any prior answer whose
-`provenance` is `accepted_draft` (an LLM draft the person didn't bother to edit) — only text
-the person actually wrote or edited counts as evidence of their voice. `validate_draft` also
-rejects a near-verbatim replay of a style example (the model echoing a prior answer instead of
-adapting to the current question); anything past that — a style example naming a different
-company, an unwanted tone — is left for the person to catch when they review the draft, same
-as any other draft.
+The draft is grounded in `profile_facts` alone (work history, education, skills, background,
+goals) — no job-posting context, no prior-answer style matching. Deliberately left out for now:
+they're real quality improvements but not required for the tool to work, and starting simple
+means finding out from actual use which added inputs are worth the complexity before building
+them back in.
 
 `profile_setup.py` backs `artemis setup`: extracts text from a resume PDF (`pypdf`) and
 asks the LLM to read it into structured fields, which the person reviews and edits before

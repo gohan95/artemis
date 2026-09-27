@@ -56,17 +56,6 @@ def _prompt_user(question: FormQuestion, draft: Draft | None = None, is_learned:
     return value or None
 
 
-def _prompt_company_notes(company: str) -> str | None:
-    try:
-        value = typer.prompt(
-            f"Anything specific about {company} you'd like a drafted answer to mention?",
-            default="", show_default=False,
-        )
-    except (EOFError, KeyboardInterrupt):
-        return None
-    return value or None
-
-
 async def _pause_for_review(page, outcome) -> None:
     """Hold a filled/submitted page open until the person says to move on.
 
@@ -106,12 +95,6 @@ def apply(
         "detectable regardless of launch flags, so this trades stealth for "
         "unattended runs. Defaults to the ARTEMIS_BROWSER_HEADLESS setting.",
     ),
-    pacing: bool = typer.Option(
-        None,
-        "--pacing/--no-pacing",
-        help="Human-paced typing, think-time, and mouse movement instead of "
-        "instant fills. Defaults to the ARTEMIS_PACING_ENABLED setting.",
-    ),
     profile_dir: Path = typer.Option(
         None, help="Persistent browser profile directory."
     ),
@@ -134,21 +117,16 @@ def apply(
     if draft:
         client = build_client(settings)
         if client is not None:
-            draft_answer = GroundedDrafter(client, profile, learned)
+            draft_answer = GroundedDrafter(client, profile)
 
     resolved_headless = settings.browser_headless if headless is None else headless
-    resolved_pacing = settings.pacing_enabled if pacing is None else pacing
     resolved_profile_dir = profile_dir or settings.browser_profile_dir
 
     async def run() -> None:
         from artemis.browser import BrowserOptions, open_session, page_factory_for
-        from artemis.pacing import HumanPacer, NullPacer
+        from artemis.pacing import NullPacer
 
-        pacer = (
-            HumanPacer(settings.pacing_profile(), seed=settings.pacing_seed)
-            if resolved_pacing
-            else NullPacer()
-        )
+        pacer = NullPacer()
 
         options = BrowserOptions(
             profile_dir=resolved_profile_dir,
@@ -167,10 +145,6 @@ def apply(
                     pause=not resolved_headless,
                 )
 
-            pipeline_kwargs = {}
-            if draft_answer is not None:
-                pipeline_kwargs["ask_company_notes"] = _prompt_company_notes
-
             pipeline = ApplicationPipeline(
                 profile=profile,
                 history=history,
@@ -184,7 +158,6 @@ def apply(
                 ask_user=_prompt_user,
                 on_filled=on_filled,
                 draft_answer=draft_answer,
-                **pipeline_kwargs,
             )
             outcomes = await pipeline.run(urls, submit=submit)
 

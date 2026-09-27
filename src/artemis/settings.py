@@ -5,8 +5,6 @@ from pathlib import Path
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from artemis.pacing import PacingProfile
-
 
 class Settings(BaseSettings):
     """Environment-backed paths and run behavior, all overridable for tests."""
@@ -32,13 +30,6 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-3.8-flash"
     llm_timeout_seconds: float = 20.0
 
-    pacing_enabled: bool = True
-    pacing_seed: int | None = None
-    pacing_key_delay_min_ms: float = 55.0
-    pacing_key_delay_max_ms: float = 165.0
-    pacing_think_min_ms: float = 400.0
-    pacing_think_max_ms: float = 1800.0
-
     def proxy(self) -> dict[str, str] | None:
         if not self.proxy_server:
             return None
@@ -49,12 +40,6 @@ class Settings(BaseSettings):
                 self.proxy_password.get_secret_value() if self.proxy_password else ""
             )
         return config
-
-    def pacing_profile(self) -> PacingProfile:
-        return PacingProfile(
-            key_delay_ms=(self.pacing_key_delay_min_ms, self.pacing_key_delay_max_ms),
-            think_ms=(self.pacing_think_min_ms, self.pacing_think_max_ms),
-        )
 
     @classmethod
     def from_env(cls) -> "Settings":

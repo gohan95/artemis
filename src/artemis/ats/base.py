@@ -8,7 +8,6 @@ mean guessing, and guessing on someone's real application is the one thing this
 project must not do.
 """
 
-import re
 from dataclasses import dataclass
 from typing import Literal, Protocol, Sequence
 from urllib.parse import urlsplit
@@ -17,24 +16,6 @@ from artemis.forms import FieldAnswer, FormQuestion
 from artemis.pacing import NullPacer, Pacer
 
 SubmissionStatus = Literal["confirmed", "rejected", "uncertain"]
-
-# Requirements extract is capped well short of a full JD: enough to ground a
-# "why this role" draft in real responsibilities, short enough that the model
-# isn't handed the raw material to write unfounded praise about the company
-# instead (see drafting.py's job-context section, stage 4).
-_REQUIREMENTS_MAX_CHARS = 1200
-
-
-@dataclass(frozen=True)
-class JobContext:
-    """Best-effort context read from the posting page itself, outside the
-    application form -- never required, never blocking. A missing or
-    unrecognized field is an empty string, not an error: this is a grounding
-    upgrade for drafting, not something an application can fail over."""
-
-    company: str = ""
-    role: str = ""
-    requirements: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,8 +40,6 @@ class ATSAdapter(Protocol):
     async def wait_until_ready(self, page) -> None: ...
 
     async def read_questions(self, page) -> list[FormQuestion]: ...
-
-    async def read_job_context(self, page) -> JobContext: ...
 
     async def fill(self, page, answers: Sequence[FieldAnswer]) -> None: ...
 
@@ -289,65 +268,6 @@ class BaseATSAdapter:
                 questions.append(question)
 
         return questions
-
-    async def read_job_context(self, page) -> JobContext:
-        """Best-effort company/role/requirements, read from the whole page.
-
-        Deliberately does not call `_require_form_scope`: that method defers
-        when the form container is missing or ambiguous, which is correct for
-        reading/filling questions but wrong here -- a posting page can easily
-        have more than one `<form>` on it (e.g. a newsletter signup) while
-        still having a perfectly good title/description to extract, and a
-        missing JD should degrade this to an empty JobContext, not defer the
-        whole application.
-
-        Never raises. Any failure (selector not found, page not ready, a
-        vendor's markup not matching what's expected) yields an empty
-        JobContext -- this is a grounding upgrade for drafting, never
-        something an application can fail over.
-        """
-
-        try:
-            return await self._read_job_context(page)
-        except Exception:
-            return JobContext()
-
-    async def _read_job_context(self, page) -> JobContext:
-        """Universal fallback: title/meta tags common to any HTML page.
-        Override per-vendor only after observing real markup on a live
-        posting -- same discipline as mapping.py's alias tables."""
-
-        title = await self._first_text(page, "title")
-        og_title = await self._first_attr(page, "meta[property='og:title']", "content")
-        og_site_name = await self._first_attr(page, "meta[property='og:site_name']", "content")
-        og_description = await self._first_attr(page, "meta[property='og:description']", "content")
-        h1 = await self._first_text(page, "h1")
-
-        role = h1 or og_title or title
-        company = og_site_name
-        requirements = og_description or ""
-
-        return JobContext(
-            company=company.strip(),
-            role=role.strip(),
-            requirements=requirements.strip()[:_REQUIREMENTS_MAX_CHARS],
-        )
-
-    @staticmethod
-    async def _first_text(page, selector: str) -> str:
-        locator = page.locator(selector).first
-        if await locator.count() == 0:
-            return ""
-        text = await locator.inner_text()
-        return re.sub(r"\s+", " ", text).strip()
-
-    @staticmethod
-    async def _first_attr(page, selector: str, attr: str) -> str:
-        locator = page.locator(selector).first
-        if await locator.count() == 0:
-            return ""
-        value = await locator.get_attribute(attr)
-        return re.sub(r"\s+", " ", value).strip() if value else ""
 
     @staticmethod
     async def _is_decorative(control) -> bool:

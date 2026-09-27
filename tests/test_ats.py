@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from artemis.ats.ashby import AshbyAdapter
-from artemis.ats.base import AdapterDeferred, JobContext
+from artemis.ats.base import AdapterDeferred
 from artemis.ats.greenhouse import GreenhouseAdapter
 from artemis.ats.lever import LeverAdapter
 from artemis.forms import FieldAnswer
@@ -423,63 +423,6 @@ async def test_waits_for_recaptcha_iframe_before_judging_invisible_vs_visible(br
     await context.close()
 
 
-@pytest.mark.asyncio
-async def test_paced_fill_produces_the_same_values_as_instant_fill(browser):
-    from artemis.pacing import HumanPacer
-
-    context = await browser.new_context()
-    page = await _load_fixture(context, "boards.greenhouse.io", "greenhouse.html")
-
-    async def _instant_sleep(_seconds: float) -> None:
-        return None
-
-    pacer = HumanPacer(seed=7, sleep=_instant_sleep)
-    adapter = GreenhouseAdapter(pacer=pacer)
-
-    resume_path = Path(__file__)
-    answers = [
-        FieldAnswer("full_name", "Riley Example", "profile"),
-        FieldAnswer("email", "riley@example.test", "profile"),
-        FieldAnswer("agree_terms", "true", "profile"),
-        FieldAnswer("employment_type", "Full-time", "profile"),
-        FieldAnswer("resume", str(resume_path), "profile"),
-    ]
-    await adapter.fill(page, answers)
-
-    assert await page.input_value("#email_field") == "riley@example.test"
-    assert await page.is_checked("#agree_terms")
-    assert await page.input_value("#employment_type") == "ft"
-    submitted = await page.evaluate("document.body.getAttribute('data-submitted')")
-    assert submitted is None
-
-    await context.close()
-
-
-@pytest.mark.asyncio
-async def test_paced_submit_still_defers_on_ambiguous_submit_control(browser):
-    from artemis.pacing import HumanPacer
-
-    context = await browser.new_context()
-    page = await _load_fixture(context, "boards.greenhouse.io", "greenhouse.html")
-    await page.evaluate(
-        """() => {
-          const extra = document.createElement('button');
-          extra.type = 'submit';
-          document.querySelector('form').appendChild(extra);
-        }"""
-    )
-
-    async def _instant_sleep(_seconds: float) -> None:
-        return None
-
-    adapter = GreenhouseAdapter(pacer=HumanPacer(seed=1, sleep=_instant_sleep))
-    result = await adapter.submit(page)
-
-    assert result.status == "uncertain"
-
-    await context.close()
-
-
 async def _fill_required_greenhouse_fields(page) -> None:
     # Required fields block native form submission until filled.
     adapter = GreenhouseAdapter()
@@ -558,81 +501,3 @@ async def test_submit_confirmed_when_the_page_navigates_away(browser):
     await context.close()
 
 
-@pytest.mark.asyncio
-async def test_read_job_context_falls_back_to_title_when_nothing_richer_exists(browser):
-    """The hand-written greenhouse/lever fixtures have only a bare <title>,
-    no <h1> or og: tags -- a realistic case for a minimal or unusual posting
-    page. role must still resolve to something, and the fields this page
-    genuinely has no markup for must come back empty, not guessed."""
-
-    context = await browser.new_context()
-    page = await _load_fixture(context, "boards.greenhouse.io", "greenhouse.html")
-    adapter = GreenhouseAdapter()
-
-    context_info = await adapter.read_job_context(page)
-
-    assert context_info.role == "Acme Corp - Software Engineer"
-    assert context_info.company == ""
-
-    await context.close()
-
-
-@pytest.mark.asyncio
-async def test_read_job_context_prefers_h1_and_og_description_on_real_markup(browser):
-    """ashby.html is real, unmodified DOM from a live posting (see the module
-    docstring) -- this is the fixture that proves extraction works against
-    an actual ATS page, not just a hand-written approximation of one."""
-
-    context = await browser.new_context()
-    page = await _load_fixture(context, "jobs.ashbyhq.com", "ashby.html")
-    adapter = AshbyAdapter()
-
-    context_info = await adapter.read_job_context(page)
-
-    assert context_info.role == "Backend Engineer, Agent Collaboration Platform"
-    assert "ABOUT HEBBIA" in context_info.requirements
-    assert len(context_info.requirements) <= 1200
-
-    await context.close()
-
-
-@pytest.mark.asyncio
-async def test_read_job_context_never_raises_when_page_has_no_recognizable_markup(browser):
-    context = await browser.new_context()
-    await context.route("**/*", lambda route: route.fulfill(
-        status=200, content_type="text/html", body="<html><body>nothing here</body></html>"
-    ))
-    page = await context.new_page()
-    await page.goto("https://boards.greenhouse.io/acme/jobs/1", wait_until="domcontentloaded")
-    adapter = GreenhouseAdapter()
-
-    context_info = await adapter.read_job_context(page)
-
-    assert context_info == JobContext()
-
-    await context.close()
-
-
-@pytest.mark.asyncio
-async def test_read_job_context_does_not_defer_when_form_scope_would(browser):
-    """read_job_context must not call _require_form_scope: a page with zero
-    or multiple <form> elements would defer through that path, but a missing
-    or ambiguous form must not block reading the surrounding page's title."""
-
-    context = await browser.new_context()
-    html = (
-        "<html><head><title>Acme Corp - Two Forms</title></head>"
-        "<body><form id='newsletter'></form><form id='application-form'></form></body></html>"
-    )
-    await context.route("**/*", lambda route: route.fulfill(
-        status=200, content_type="text/html", body=html
-    ))
-    page = await context.new_page()
-    await page.goto("https://boards.greenhouse.io/acme/jobs/1", wait_until="domcontentloaded")
-    adapter = GreenhouseAdapter()
-
-    context_info = await adapter.read_job_context(page)
-
-    assert context_info.role == "Acme Corp - Two Forms"
-
-    await context.close()

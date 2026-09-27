@@ -141,21 +141,6 @@ def test_resume_alias_resolves_to_resume_path(learned):
     assert resolution.answer.value == str(profile.resume_path)
 
 
-def test_canonical_type_match_survives_rephrasing(learned):
-    """The regression this store rewrite exists to fix: two phrasings of the
-    same recognized question type ("why_company") now share one learned
-    answer, including across a trailing '?' that normalize_label alone would
-    treat as a different cache key."""
-
-    profile = make_profile()
-    learned.record("Why do you want to work here?", "Because the mission resonates with me.")
-
-    with_mark = FormQuestion(id="q1", label="Why do you want to work here?", required=False, kind="text")
-    rephrased = FormQuestion(id="q2", label="What interests you about our company", required=False, kind="text")
-
-    assert resolve_question(with_mark, profile, learned).answer.value == "Because the mission resonates with me."
-    assert resolve_question(rephrased, profile, learned).answer.value == "Because the mission resonates with me."
-
 
 def test_no_preference_alias_is_a_protected_question():
     """Structural guard, matching the canonical-type one in test_mapping.py:

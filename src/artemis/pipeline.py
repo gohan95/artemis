@@ -44,19 +44,6 @@ def _is_draftable(question: FormQuestion) -> bool:
     return question.kind in {"text", "unknown"} and not question.options
 
 
-class AskCompanyNotes(Protocol):
-    """Ask, once per URL, for 1-2 things the person wants a draft to mention
-    about this specific company -- optional, skippable, never inferred.
-    Called only when a draftable question exists and the posting's own
-    company name was actually found (see `_process_url`)."""
-
-    def __call__(self, company: str) -> str | None: ...
-
-
-def _no_company_notes(company: str) -> str | None:
-    return None
-
-
 class OnFilled(Protocol):
     """Called with a filled or submitted page, before it is closed.
 
@@ -99,7 +86,6 @@ class ApplicationPipeline:
         ask_user: AskUser,
         on_filled: OnFilled = _no_pause,
         draft_answer: DraftAnswer | None = None,
-        ask_company_notes: AskCompanyNotes = _no_company_notes,
     ):
         self.profile = profile
         self.history = history
@@ -109,7 +95,6 @@ class ApplicationPipeline:
         self.ask_user = ask_user
         self.on_filled = on_filled
         self.draft_answer = draft_answer
-        self.ask_company_notes = ask_company_notes
 
     async def run(self, urls: list[str], *, submit: bool) -> list[ApplicationOutcome]:
         return [await self._process_url(url, submit=submit) for url in urls]
@@ -148,18 +133,6 @@ class ApplicationPipeline:
                 # asked for live, so an answer can't slip in unrecorded.
                 unresolved.append(question)
 
-            job = None
-            company_notes = ""
-            if self.draft_answer is not None and any(
-                q not in undeclared_gaps and _is_draftable(q) for q in unresolved
-            ):
-                # Fetched once per URL, not per question -- the same posting
-                # backs every question on the page. read_job_context never
-                # raises, so this can't itself defer the application.
-                job = await adapter.read_job_context(page)
-                if job.company:
-                    company_notes = self.ask_company_notes(job.company) or ""
-
             still_unresolved: list[FormQuestion] = []
             for question, learned_answer in for_review:
                 # A learned answer is never filled sight-unseen: it was
@@ -172,10 +145,7 @@ class ApplicationPipeline:
                 if value != learned_answer.value:
                     # A correction -- update the store so the next
                     # application gets the corrected value, not the stale one.
-                    self.learned.record(
-                        question.label, value,
-                        kind=question.kind, options=question.options, provenance="typed",
-                    )
+                    self.learned.record(question.label, value)
                     answers.append(FieldAnswer(question.id, value, "user"))
                 else:
                     answers.append(learned_answer)
@@ -186,25 +156,13 @@ class ApplicationPipeline:
                     continue
                 draft = None
                 if self.draft_answer is not None and _is_draftable(question):
-                    draft = self.draft_answer(question, job, company_notes)
+                    draft = self.draft_answer(question)
                 value = self.ask_user(question, draft)
                 if value is None or not value.strip():
                     still_unresolved.append(question)
                     continue
-                provenance = "typed"
-                if draft is not None and value == draft.text:
-                    provenance = "accepted_draft"
-                elif draft is not None:
-                    provenance = "edited_draft"
-                self.learned.record(
-                    question.label, value,
-                    kind=question.kind, options=question.options, provenance=provenance,
-                )
-                resolution = resolve_question(question, self.profile, self.learned)
-                if resolution.answer is not None:
-                    answers.append(resolution.answer)
-                else:
-                    still_unresolved.append(question)
+                self.learned.record(question.label, value)
+                answers.append(FieldAnswer(question.id, value, "learned"))
 
             await adapter.fill(page, answers)
 
